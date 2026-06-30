@@ -116,10 +116,12 @@ export default function UsersPage() {
         height: '64px', display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', padding: '0 32px', flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: '20px', display: 'flex', alignItems: 'center' }}>←</button>
-          <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'linear-gradient(135deg,#5b6bff,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>👥</div>
-          <span style={{ fontWeight: '800', fontSize: '16px' }}>إدارة المستخدمين</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px' }}>
+          <button onClick={() => navigate('/')} style={{ color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', fontSize: '15px' }}>
+            المشاريع
+          </button>
+          <span style={{ color: '#d1d5db' }}>›</span>
+          <span style={{ fontWeight: '700', color: '#374151' }}>إدارة المستخدمين</span>
         </div>
         <button
           onClick={() => { setShowForm(true); setError('') }}
