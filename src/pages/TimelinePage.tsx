@@ -99,6 +99,8 @@ export default function TimelinePage() {
   const [hoveredId, setHoveredId]     = useState<string | null>(null)
   const [editingId, setEditingId]     = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
+  const [, setDragTick]               = useState(0)
+  const dragDatesRef                  = useRef<{ id: string; start_date: string; end_date: string } | null>(null)
   const [exporting, setExporting]     = useState(false)
   const [treeWidth, setTreeWidth]     = useState(290)
   const [isPanning, setIsPanning]     = useState(false)
@@ -222,20 +224,25 @@ export default function TimelinePage() {
     const onMove = (ev: MouseEvent) => {
       if (!dragRef.current) return
       const dx = ev.clientX - dragRef.current.startX
-      const { type: t, startLeft: sl, startWidth: sw, ppd: p } = dragRef.current
+      const { type: t, startLeft: sl, startWidth: sw, ppd: p, id: itemId } = dragRef.current
       let newLeft = sl, newWidth = sw
       // RTL: negate dx direction; left handle = end date, right handle = start date
       if (t === 'move')             { newLeft = Math.max(0, sl - dx) }
       else if (t === 'resize-right'){ newLeft = Math.max(0, sl - dx); newWidth = Math.max(7 * p, sw + dx) }
       else /* resize-left */        { newWidth = Math.max(7 * p, sw - dx) }
-      const newStart = xToDate(newLeft, p)
-      const newEnd   = xToDate(newLeft + newWidth, p)
-      setItems(prev => prev.map(i => i.id === dragRef.current?.id ? { ...i, start_date: newStart, end_date: newEnd } : i))
+      // Store drag state in ref — no setItems cascade, just one cheap re-render tick
+      dragDatesRef.current = { id: itemId, start_date: xToDate(newLeft, p), end_date: xToDate(newLeft + newWidth, p) }
+      setDragTick(n => n + 1)
     }
     const onUp = async () => {
       document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp)
-      const moved = itemsRef.current.find(i => i.id === dragRef.current?.id)
-      if (moved) await supabase.from('roadmap_items').update({ start_date: moved.start_date, end_date: moved.end_date }).eq('id', moved.id)
+      // Commit final position to DB and items state once on release
+      if (dragDatesRef.current) {
+        const { id: itemId, start_date, end_date } = dragDatesRef.current
+        await supabase.from('roadmap_items').update({ start_date, end_date }).eq('id', itemId)
+        setItems(prev => prev.map(i => i.id === itemId ? { ...i, start_date, end_date } : i))
+        dragDatesRef.current = null
+      }
       dragRef.current = null
     }
     document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp)
@@ -694,7 +701,11 @@ export default function TimelinePage() {
               })()}
 
               {flat.map(({ item, depth }) => {
-                const cur           = items.find(i => i.id === item.id) ?? item
+                const _base = items.find(i => i.id === item.id) ?? item
+                // During drag: read visual position from ref (no setItems cascade)
+                const cur   = dragDatesRef.current?.id === item.id
+                  ? { ..._base, start_date: dragDatesRef.current.start_date, end_date: dragDatesRef.current.end_date }
+                  : _base
                 const barLeft       = dateToX(cur.start_date, pxPerDay)
                 const barWidth      = widthFromDates(cur.start_date, cur.end_date, pxPerDay)
                 const isDone        = cur.status === 'done'
@@ -705,17 +716,12 @@ export default function TimelinePage() {
                   <div key={item.id}
                     onMouseEnter={() => setHoveredId(item.id)}
                     onMouseLeave={() => setHoveredId(null)}
-                    style={{ position: 'relative', height: `${ROW_H}px`, borderBottom: '1px solid #e5e7eb', background: selected?.id === item.id ? '#fafbff' : hoveredId === item.id ? `${TYPE_COLORS[cur.type].bg}14` : 'transparent' }}>
-
-                    {/* Major grid lines (one per month) */}
-                    {Array.from({ length: TOTAL_MONTHS }, (_, i) => (
-                      <div key={i} style={{ position: 'absolute', top: 0, bottom: 0, left: `${i * MONTH_W}px`, borderLeft: '1px solid #d8d8e4' }} />
-                    ))}
-
-                    {/* Minor grid lines (day ticks within each month) */}
-                    {Array.from({ length: TOTAL_MONTHS * 4 }, (_, i) => (
-                      <div key={`m${i}`} style={{ position: 'absolute', top: 0, bottom: 0, left: `${i * (MONTH_W / 4)}px`, borderLeft: i % 4 === 0 ? 'none' : '1px solid #eeeef5' }} />
-                    ))}
+                    style={{
+                      position: 'relative', height: `${ROW_H}px`, borderBottom: '1px solid #e5e7eb',
+                      backgroundColor: selected?.id === item.id ? '#fafbff' : hoveredId === item.id ? `${depthColor(depth)}14` : 'transparent',
+                      // Grid lines via CSS — replaces ~245 DOM divs per row
+                      backgroundImage: 'repeating-linear-gradient(90deg,#d8d8e4 0,#d8d8e4 1px,transparent 1px,transparent 220px),repeating-linear-gradient(90deg,#eeeef5 0,#eeeef5 1px,transparent 1px,transparent 55px)',
+                    }}>
 
                     {/* Bar */}
                     <div
