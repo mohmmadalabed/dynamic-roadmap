@@ -554,6 +554,44 @@ export default function TimelinePage() {
               {/* Today line — RTL: today is near RIGHT side */}
               <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${totalGanttW - todayX}px`, width: '2px', background: '#5b6bff', opacity: 0.5, zIndex: 20, pointerEvents: 'none' }} />
 
+              {/* Parent-child connector lines (SVG overlay) */}
+              {flat.length > 0 && (() => {
+                const connectors: React.ReactElement[] = []
+                flat.forEach(({ item, depth }, parentIdx) => {
+                  if (!item.children?.length || collapsed.has(item.id)) return
+                  // Find last visible descendant using depth
+                  let lastIdx = parentIdx
+                  for (let i = parentIdx + 1; i < flat.length; i++) {
+                    if (flat[i].depth <= depth) break
+                    lastIdx = i
+                  }
+                  if (lastIdx === parentIdx) return
+                  const cur = items.find(i => i.id === item.id) ?? item
+                  const x   = totalGanttW - dateToX(cur.start_date, pxPerDay)
+                  const y1  = parentIdx * ROW_H + ROW_H
+                  const y2  = lastIdx   * ROW_H + ROW_H / 2
+                  const color = TYPE_COLORS[item.type].bg
+                  connectors.push(
+                    <g key={item.id}>
+                      <line x1={x} y1={y1} x2={x} y2={y2} stroke={color} strokeWidth={1.5} strokeDasharray="5 4" opacity={0.45} />
+                      {flat.slice(parentIdx + 1, lastIdx + 1)
+                        .filter(f => f.item.parent_id === item.id)
+                        .map(f => {
+                          const ci = flat.findIndex(ff => ff.item.id === f.item.id)
+                          const cy = ci * ROW_H + ROW_H / 2
+                          return <line key={f.item.id} x1={x} y1={cy} x2={x - 14} y2={cy} stroke={color} strokeWidth={1.5} strokeDasharray="5 4" opacity={0.45} />
+                        })
+                      }
+                    </g>
+                  )
+                })
+                return (
+                  <svg style={{ position: 'absolute', top: 0, left: 0, width: `${totalGanttW}px`, height: `${flat.length * ROW_H}px`, pointerEvents: 'none', zIndex: 6 }}>
+                    {connectors}
+                  </svg>
+                )
+              })()}
+
               {flat.map(({ item }) => {
                 const cur           = items.find(i => i.id === item.id) ?? item
                 const barLeft       = dateToX(cur.start_date, pxPerDay)

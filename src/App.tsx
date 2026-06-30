@@ -5,9 +5,11 @@ import type { Session } from '@supabase/supabase-js'
 import LoginPage    from './pages/LoginPage'
 import Dashboard    from './pages/Dashboard'
 import TimelinePage from './pages/TimelinePage'
+import UsersPage    from './pages/UsersPage'
 
 export default function App() {
-  const [session, setSession] = useState<Session | null | undefined>(undefined)
+  const [session, setSession]   = useState<Session | null | undefined>(undefined)
+  const [isAdmin, setIsAdmin]   = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -15,19 +17,27 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Fetch role whenever session changes
+  useEffect(() => {
+    if (!session?.user) { setIsAdmin(false); return }
+    supabase.from('profiles').select('role').eq('id', session.user.id).single()
+      .then(({ data }) => setIsAdmin(data?.role === 'admin'))
+  }, [session?.user?.id])
+
   if (session === undefined) return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+      <div style={{ width: '32px', height: '32px', border: '4px solid #e5e7eb', borderTopColor: '#5b6bff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
     </div>
   )
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={session ? <Navigate to="/" /> : <LoginPage />} />
-        <Route path="/" element={session ? <Dashboard /> : <Navigate to="/login" />} />
+        <Route path="/login"       element={session ? <Navigate to="/" /> : <LoginPage />} />
+        <Route path="/"            element={session ? <Dashboard isAdmin={isAdmin} /> : <Navigate to="/login" />} />
         <Route path="/project/:id" element={session ? <TimelinePage /> : <Navigate to="/login" />} />
-        <Route path="*" element={<Navigate to="/" />} />
+        <Route path="/users"       element={session && isAdmin ? <UsersPage /> : <Navigate to="/" />} />
+        <Route path="*"            element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
   )

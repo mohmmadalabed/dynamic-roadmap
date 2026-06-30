@@ -5,7 +5,7 @@ import type { Project } from '../types'
 
 const PROJECT_COLORS = ['#5b6bff','#16a34a','#f97316','#7c3aed','#ef4444','#0891b2']
 
-export default function Dashboard() {
+export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
   const navigate = useNavigate()
   const [projects, setProjects]   = useState<Project[]>([])
   const [loading, setLoading]     = useState(true)
@@ -54,16 +54,30 @@ export default function Dashboard() {
           <span style={{ fontWeight: '800', fontSize: '16px', letterSpacing: '-0.3px' }}>Dynamic Roadmap</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button
-            onClick={() => setShowModal(true)}
-            style={{
-              background: '#5b6bff', color: '#fff',
-              border: 'none', borderRadius: '10px',
-              padding: '8px 20px', fontWeight: '700', fontSize: '14px',
-              cursor: 'pointer',
-            }}>
-            + مشروع جديد
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => navigate('/users')}
+              style={{
+                background: 'transparent', color: '#6b7280',
+                border: '1px solid #e5e7eb', borderRadius: '10px',
+                padding: '8px 16px', fontSize: '13px', fontWeight: '600',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+              }}>
+              👥 المستخدمون
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setShowModal(true)}
+              style={{
+                background: '#5b6bff', color: '#fff',
+                border: 'none', borderRadius: '10px',
+                padding: '8px 20px', fontWeight: '700', fontSize: '14px',
+                cursor: 'pointer',
+              }}>
+              + مشروع جديد
+            </button>
+          )}
           <button
             onClick={logout}
             style={{
