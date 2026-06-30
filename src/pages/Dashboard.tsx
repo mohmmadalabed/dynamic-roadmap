@@ -143,7 +143,6 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               <ProjectCard
                 key={p.id}
                 project={p}
-                index={projects.indexOf(p)}
                 isAdmin={isAdmin}
                 onClick={() => navigate(`/project/${p.id}`)}
                 onEdit={e => { e.stopPropagation(); setEditTarget(p); setEditForm({ name: p.name, color: p.color }) }}
@@ -288,4 +287,206 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>اسم المشروع *</label>
               <input
-                autoFocus value={editForm.name} onChang
+                autoFocus value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} required
+                style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', width: '100%' }}
+                onFocus={e => (e.target.style.borderColor = '#5b6bff')}
+                onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>اللون</label>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {PROJECT_COLORS.map(c => (
+                  <button key={c} type="button" onClick={() => setEditForm(f => ({ ...f, color: c }))}
+                    style={{ width: '32px', height: '32px', borderRadius: '50%', background: c, border: 'none', cursor: 'pointer', outline: editForm.color === c ? `3px solid ${c}` : '3px solid transparent', outlineOffset: '2px', transition: 'outline 0.15s' }} />
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button type="submit" style={{ flex: 1, padding: '12px', borderRadius: '12px', background: '#5b6bff', color: '#fff', fontWeight: '700', fontSize: '14px', border: 'none', cursor: 'pointer' }}>حفظ التغييرات</button>
+              <button type="button" onClick={() => setEditTarget(null)} style={{ padding: '12px 20px', borderRadius: '12px', border: '1.5px solid #e5e7eb', background: '#fff', fontSize: '14px', color: '#6b7280', cursor: 'pointer' }}>إلغاء</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ── */}
+      {deleteTarget && (
+        <div
+          onClick={() => { setDeleteTarget(null); setDeleteInput('') }}
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 50, padding: '24px',
+          }}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: '20px',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+              width: '100%', maxWidth: '420px',
+              padding: '32px',
+              display: 'flex', flexDirection: 'column', gap: '20px',
+            }}>
+            {/* Icon + title */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', textAlign: 'center' }}>
+              <div style={{
+                width: '52px', height: '52px', borderRadius: '50%',
+                background: '#fef2f2', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', fontSize: '22px',
+              }}>🗑</div>
+              <h3 style={{ fontSize: '17px', fontWeight: '800', margin: 0, color: '#111827' }}>
+                حذف المشروع نهائياً
+              </h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', margin: 0, lineHeight: '1.6' }}>
+                سيتم حذف مشروع <strong style={{ color: '#111827' }}>{deleteTarget.name}</strong> وجميع بنوده بشكل نهائي ولا يمكن التراجع عن هذا الإجراء.
+              </p>
+            </div>
+
+            {/* Divider */}
+            <div style={{ height: '1px', background: '#f3f4f6' }} />
+
+            {/* Confirmation input */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600' }}>
+                اكتب <code style={{ background: '#f3f4f6', padding: '2px 7px', borderRadius: '5px', fontFamily: 'monospace', color: '#ef4444' }}>delete</code> للتأكيد
+              </label>
+              <input
+                autoFocus
+                value={deleteInput}
+                onChange={e => setDeleteInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') confirmDelete() }}
+                placeholder="delete"
+                style={{
+                  border: `1.5px solid ${deleteInput === 'delete' ? '#ef4444' : '#e5e7eb'}`,
+                  borderRadius: '10px', padding: '11px 14px', fontSize: '14px',
+                  background: '#f9fafb', outline: 'none', width: '100%',
+                  fontFamily: 'monospace', letterSpacing: '0.5px',
+                  transition: 'border-color 0.15s',
+                }}
+              />
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteInput('') }}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '10px',
+                  border: '1.5px solid #e5e7eb', background: '#fff',
+                  fontSize: '14px', color: '#6b7280', cursor: 'pointer', fontWeight: '600',
+                }}>
+                إلغاء
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleteInput !== 'delete' || deleting}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '10px',
+                  border: 'none', fontSize: '14px', fontWeight: '700',
+                  cursor: deleteInput === 'delete' && !deleting ? 'pointer' : 'not-allowed',
+                  background: deleteInput === 'delete' ? '#ef4444' : '#fca5a5',
+                  color: '#fff', transition: 'background 0.15s',
+                }}>
+                {deleting ? 'جارٍ الحذف...' : 'حذف نهائياً'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+}
+
+function ProjectCard({
+  project, isAdmin, onClick, onEdit, onDelete,
+}: {
+  project: Project
+  isAdmin: boolean
+  onClick: () => void
+  onEdit: (e: React.MouseEvent) => void
+  onDelete: (e: React.MouseEvent) => void
+}) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: '#fff', borderRadius: '16px',
+        border: '1px solid #e5e7eb',
+        padding: '24px', cursor: 'pointer',
+        position: 'relative', overflow: 'hidden',
+        display: 'flex', flexDirection: 'column', gap: '16px',
+        transition: 'all 0.2s',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)'
+        ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 24px rgba(0,0,0,0.10)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px rgba(0,0,0,0.04)'
+      }}
+    >
+      {/* Top color accent */}
+      <div style={{
+        position: 'absolute', top: 0, right: 0, left: 0,
+        height: '4px', background: project.color, borderRadius: '16px 16px 0 0',
+      }} />
+
+      {/* Card header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginTop: '4px' }}>
+        <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0, lineHeight: '1.4' }}>{project.name}</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <span style={{
+            fontSize: '11px', fontWeight: '700', padding: '4px 10px',
+            borderRadius: '20px', background: '#eef2ff', color: '#5b6bff',
+          }}>جارٍ</span>
+          {isAdmin && (
+            <button
+              onClick={onEdit}
+              title="تعديل المشروع"
+              style={{
+                width: '28px', height: '28px', borderRadius: '7px',
+                border: '1px solid #e5e7eb', background: '#f9fafb',
+                color: '#6b7280', cursor: 'pointer', fontSize: '13px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+              ✏️
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={onDelete}
+              title="حذف المشروع"
+              style={{
+                width: '28px', height: '28px', borderRadius: '7px',
+                border: '1px solid #fee2e2', background: '#fef2f2',
+                color: '#f87171', cursor: 'pointer', fontSize: '13px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+              🗑
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Description */}
+      {project.description && (
+        <p style={{ fontSize: '13px', color: '#6b7280', margin: 0, lineHeight: '1.6' }}>
+          {project.description}
+        </p>
+      )}
+
+      {/* Decorative color line */}
+      <div style={{ marginTop: 'auto', height: '3px', borderRadius: '99px', background: `linear-gradient(to left, ${project.color}, ${project.color}22)` }} />
+    </div>
+  )
+}

@@ -134,16 +134,19 @@ export default function TimelinePage() {
       supabase.from('roadmap_items').select('*').eq('project_id', id).order('position')
     ])
     if (proj) setProject(proj)
-    if (its) {
-      setItems(its)
-      const t = buildTree(its)
-      setTree(t)
-      setFlat(flattenTree(t, 0, collapsed))
-    }
-  }, [id, collapsed])
+    if (its) setItems(its)
+  }, [id])
+
+  // Rebuild tree whenever items change
+  useEffect(() => {
+    const t = buildTree(items)
+    setTree(t)
+  }, [items])
+
+  // Rebuild flat list whenever tree or collapsed changes
+  useEffect(() => { setFlat(flattenTree(tree, 0, collapsed)) }, [collapsed, tree])
 
   useEffect(() => { reload() }, [id])
-  useEffect(() => { if (tree.length) setFlat(flattenTree(tree, 0, collapsed)) }, [collapsed, tree])
 
   const toggleCollapse = (itemId: string) => {
     setCollapsed(prev => {
@@ -160,20 +163,26 @@ export default function TimelinePage() {
       end_date: new Date(Date.now() + 14*86400000).toISOString().split('T')[0]
     }
     const { data } = await supabase.from('roadmap_items').insert(newItem).select().single()
-    if (data) { await reload() }
+    if (data) {
+      setItems(prev => [...prev, data])
+      setSelected(data)
+    }
   }
 
   const saveItem = async (updated: Partial<RoadmapItem>) => {
     if (!selected) return
     await supabase.from('roadmap_items').update(updated).eq('id', selected.id)
-    setSelected(s => s ? { ...s, ...updated } : s)
-    await reload()
+    const merged = { ...selected, ...updated }
+    setSelected(merged)
+    setItems(prev => prev.map(i => i.id === selected.id ? merged : i))
   }
 
   const deleteItem = async () => {
     if (!selected) return
     await supabase.from('roadmap_items').delete().eq('id', selected.id)
-    setSelected(null); await reload()
+    const deletedId = selected.id
+    setSelected(null)
+    setItems(prev => prev.filter(i => i.id !== deletedId))
   }
 
   // ── Gantt pan ─────────────────────────────────────────────────────────────
@@ -254,8 +263,12 @@ export default function TimelinePage() {
   }
   const commitRename = async (itemId: string) => {
     const name = editingName.trim()
-    if (name) await supabase.from('roadmap_items').update({ name }).eq('id', itemId)
-    setEditingId(null); await reload()
+    setEditingId(null)
+    if (name) {
+      await supabase.from('roadmap_items').update({ name }).eq('id', itemId)
+      setItems(prev => prev.map(i => i.id === itemId ? { ...i, name } : i))
+      if (selected?.id === itemId) setSelected(s => s ? { ...s, name } : s)
+    }
   }
 
   // ── PDF Export ────────────────────────────────────────────────────────────
@@ -791,3 +804,109 @@ function SidePanel({ item, onSave, onDelete, onClose, onAddChild }: {
   // Reset fields when switching items
   useEffect(() => {
     skipSave.current = true
+    setName(item.name)
+    setStart(item.start_date ?? ''); setEnd(item.end_date ?? '')
+    setPriority(item.priority); setStatus(item.status)
+    setSaveStatus('idle')
+  }, [item.id])
+
+  // Autosave with 700ms debounce
+  useEffect(() => {
+    if (skipSave.current) { skipSave.current = false; return }
+    setSaveStatus('saving')
+    const t = setTimeout(() => {
+      onSave({ name, start_date: start, end_date: end, priority, status })
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    }, 700)
+    return () => clearTimeout(t)
+  }, [name, start, end, priority, status])
+
+  const priorities: Priority[] = ['critical', 'high', 'medium', 'low']
+  const statuses:   Status[]   = ['not_started', 'in_progress', 'done', 'blocked']
+  const PRIORITY_LABELS: Record<Priority, string> = { critical: '⬆⬆ حرج', high: '⬆ عالي', medium: '◎ متوسط', low: '⬇ منخفض' }
+
+  return (
+    <div id="side-panel" style={{ width: '360px', flexShrink: 0, background: '#fff', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e5e7eb', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '16px' }}>{TYPE_ICONS[item.type]}</span>
+          <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151' }}>{TYPE_LABELS[item.type]}</span>
+          <span style={{ fontSize: '12px', padding: '2px 8px', borderRadius: '99px', background: `${PRIORITY_COLORS[item.priority]}15`, color: PRIORITY_COLORS[item.priority], fontWeight: '600' }}>
+            {PRIORITY_LABELS[item.priority]}
+          </span>
+        </div>
+        <button onClick={onClose} style={{ width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#9ca3af', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <Section><Field label="الاسم">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="اسم البند" style={inputStyle}
+            onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
+        </Field></Section>
+
+        <Section><Field label="المدة الزمنية">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ fontSize: '12px', color: '#9ca3af' }}>البداية</span>
+              <input type="date" value={start} onChange={e => setStart(e.target.value)} style={{ ...inputStyle, fontSize: '13px', padding: '8px 10px' }}
+                onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ fontSize: '12px', color: '#9ca3af' }}>النهاية</span>
+              <input type="date" value={end} onChange={e => setEnd(e.target.value)} style={{ ...inputStyle, fontSize: '13px', padding: '8px 10px' }}
+                onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
+            </div>
+          </div>
+        </Field></Section>
+
+        <Section>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="الأولوية">
+              <select value={priority} onChange={e => setPriority(e.target.value as Priority)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                {priorities.map(p => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
+              </select>
+            </Field>
+            <Field label="الحالة">
+              <select value={status} onChange={e => setStatus(e.target.value as Status)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                {statuses.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+              </select>
+            </Field>
+          </div>
+        </Section>
+
+        {onAddChild && (
+          <Section>
+            <button onClick={onAddChild} style={{ width: '100%', padding: '11px', borderRadius: '10px', fontSize: '14px', fontWeight: '600', color: '#5b6bff', background: '#f5f3ff', border: '1.5px dashed #c4b5fd', cursor: 'pointer' }}>
+              + إضافة {TYPE_LABELS[CHILD_TYPE[item.type]!]}
+            </button>
+          </Section>
+        )}
+      </div>
+
+      <div style={{ padding: '14px 20px', borderTop: '1px solid #f0f0f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fafafa' }}>
+        <span style={{ fontSize: '12px', color: saveStatus === 'saved' ? '#16a34a' : saveStatus === 'saving' ? '#9ca3af' : 'transparent', transition: 'color 0.3s' }}>
+          {saveStatus === 'saving' ? '⏳ جارٍ الحفظ...' : '✓ تم الحفظ'}
+        </span>
+        <button onClick={onDelete} style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #fee2e2', background: '#fef2f2', color: '#f87171', cursor: 'pointer', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🗑</button>
+      </div>
+    </div>
+  )
+}
+
+const inputStyle: React.CSSProperties = {
+  border: '1.5px solid #e5e7eb', borderRadius: '10px', padding: '10px 14px',
+  fontSize: '14px', background: '#f9fafb', outline: 'none', width: '100%',
+  transition: 'border-color 0.15s', fontFamily: 'inherit',
+}
+function Section({ children }: { children: React.ReactNode }) {
+  return <div style={{ padding: '16px 20px', borderBottom: '1px solid #f5f5f8' }}>{children}</div>
+}
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <label style={{ fontSize: '12px', fontWeight: '700', color: '#9ca3af' }}>{label}</label>
+      {children}
+    </div>
+  )
+}
