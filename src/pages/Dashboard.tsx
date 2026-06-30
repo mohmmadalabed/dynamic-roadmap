@@ -49,8 +49,10 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
             width: '36px', height: '36px', borderRadius: '10px',
             background: 'linear-gradient(135deg,#5b6bff,#7c3aed)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '18px',
-          }}>🗺</div>
+            fontWeight: '800', fontSize: '13px', letterSpacing: '0.5px',
+            color: '#fff', fontFamily: "'Noto Kufi Arabic', sans-serif",
+            userSelect: 'none',
+          }}>DR</div>
           <span style={{ fontWeight: '800', fontSize: '16px', letterSpacing: '-0.3px' }}>Dynamic Roadmap</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
