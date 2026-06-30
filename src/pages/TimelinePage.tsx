@@ -34,8 +34,8 @@ const PDF_WEEKS = 16 // weeks shown in PDF export
 const today      = new Date()
 const START_DATE = new Date(today.getFullYear(), today.getMonth(), 1)
 
-const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
-                   'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
+const MONTHS_SYR = ['كانون الثاني','شباط','آذار','نيسان','أيار','حزيران',
+                    'تموز','آب','أيلول','تشرين الأول','تشرين الثاني','كانون الأول']
 
 // ── Flexible date↔pixel helpers (take pxPerDay so they work in both modes) ──
 function dateToX(d: string | null | undefined, pxPerDay: number): number {
@@ -107,16 +107,17 @@ export default function TimelinePage() {
   const totalGanttW = ganttCols * ganttColW
   const todayX      = dateToX(today.toISOString().split('T')[0], pxPerDay)
 
-  // Scroll to today when view changes
+  // Scroll to show current date (on the RIGHT in RTL layout)
   useEffect(() => {
-    if (ganttScrollRef.current)
-      ganttScrollRef.current.scrollLeft = Math.max(0, todayX - 120)
+    const el = ganttScrollRef.current
+    if (!el) return
+    setTimeout(() => { if (el) el.scrollLeft = el.scrollWidth }, 0)
   }, [viewMode])
 
   // Month labels for current range
   const monthLabels = Array.from({ length: ganttCols <= 4 ? 4 : ganttCols }, (_, i) => {
     const d = new Date(START_DATE); d.setMonth(d.getMonth() + i)
-    return MONTHS_AR[d.getMonth()]
+    return MONTHS_SYR[d.getMonth()]
   })
 
   // Keep ref in sync for drag closures
@@ -181,7 +182,7 @@ export default function TimelinePage() {
       if (!panRef.current || !ganttScrollRef.current) return
       const delta = ev.clientX - panRef.current.lastX
       panRef.current.lastX = ev.clientX
-      ganttScrollRef.current.scrollLeft -= delta
+      ganttScrollRef.current.scrollLeft += delta  // RTL: drag right → show current (right side)
     }
     const onUp = () => {
       panRef.current = null; setIsPanning(false)
@@ -210,9 +211,10 @@ export default function TimelinePage() {
       const dx = ev.clientX - dragRef.current.startX
       const { type: t, startLeft: sl, startWidth: sw, ppd: p } = dragRef.current
       let newLeft = sl, newWidth = sw
-      if (t === 'move')          { newLeft = Math.max(0, sl + dx) }
-      else if (t === 'resize-left') { newLeft = Math.max(0, sl + dx); newWidth = Math.max(7 * p, sw - dx) }
-      else                          { newWidth = Math.max(7 * p, sw + dx) }
+      // RTL: negate dx direction; left handle = end date, right handle = start date
+      if (t === 'move')             { newLeft = Math.max(0, sl - dx) }
+      else if (t === 'resize-right'){ newLeft = Math.max(0, sl - dx); newWidth = Math.max(7 * p, sw + dx) }
+      else /* resize-left */        { newWidth = Math.max(7 * p, sw - dx) }
       const newStart = xToDate(newLeft, p)
       const newEnd   = xToDate(newLeft + newWidth, p)
       setItems(prev => prev.map(i => i.id === dragRef.current?.id ? { ...i, start_date: newStart, end_date: newEnd } : i))
@@ -293,7 +295,7 @@ export default function TimelinePage() {
       // Month headers
       ctx.fillStyle = '#f5f6fa'; ctx.fillRect(0, TITLE_H, GANTT_W, 30)
       const pdfMonths = Array.from({ length: 4 }, (_, i) => {
-        const d = new Date(START_DATE); d.setMonth(d.getMonth() + i); return MONTHS_AR[d.getMonth()]
+        const d = new Date(START_DATE); d.setMonth(d.getMonth() + i); return MONTHS_SYR[d.getMonth()]
       })
       const mW = GANTT_W / 4
       pdfMonths.forEach((m, i) => {
@@ -525,45 +527,47 @@ export default function TimelinePage() {
         >
           <div ref={exportRef} style={{ minWidth: `${totalGanttW}px` }}>
 
-            {/* ── Month header row ── */}
+            {/* ── Month header row (RTL: current month on right) ── */}
             <div style={{ display: 'flex', height: '30px', position: 'sticky', top: 0, zIndex: 10, background: '#f5f6fa', borderBottom: '1px solid #d1d5db' }}>
               {viewMode === 'weeks'
-                ? monthLabels.slice(0, 4).map((m, i) => (
+                ? [...monthLabels.slice(0, 4)].reverse().map((m, i) => (
                     <div key={i} style={{ flex: 1, borderLeft: i > 0 ? '1px solid #d1d5db' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', color: '#6b7280' }}>{m}</div>
                   ))
                 : Array.from({ length: ganttCols }, (_, i) => {
-                    const d = new Date(START_DATE); d.setMonth(d.getMonth() + i)
+                    const actualI = ganttCols - 1 - i
+                    const d = new Date(START_DATE); d.setMonth(d.getMonth() + actualI)
                     return (
                       <div key={i} style={{ width: `${MONTH_W}px`, borderLeft: i > 0 ? '1px solid #d1d5db' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', color: '#6b7280' }}>
-                        {MONTHS_AR[d.getMonth()]}
+                        {MONTHS_SYR[d.getMonth()]}
                       </div>
                     )
                   })
               }
             </div>
 
-            {/* ── Sub-header row (weeks or day ticks) ── */}
+            {/* ── Sub-header row (weeks or day ticks) — RTL reversed ── */}
             <div style={{ display: 'flex', height: '24px', position: 'sticky', top: '30px', zIndex: 10, background: '#fff', borderBottom: '1px solid #d1d5db' }}>
               {viewMode === 'weeks'
                 ? Array.from({ length: 16 }, (_, i) => (
                     <div key={i} style={{ width: `${WEEK_W}px`, borderLeft: i > 0 ? '1px solid #e0e0e8' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#9ca3af', fontWeight: '600' }}>
-                      {i + 1}
+                      {16 - i}
                     </div>
                   ))
-                : Array.from({ length: ganttCols }, (_, mi) =>
-                    [1, 8, 15, 22].map((day, wi) => (
-                      <div key={`${mi}-${wi}`} style={{ width: `${MONTH_W / 4}px`, borderLeft: wi > 0 ? '1px solid #e8e8f0' : (mi > 0 ? '1px solid #e0e0e8' : 'none'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#b0b0c0', fontWeight: '600' }}>
+                : Array.from({ length: ganttCols }, (_, mi) => {
+                    const actualMi = ganttCols - 1 - mi
+                    return [22, 15, 8, 1].map((day, wi) => (
+                      <div key={`${actualMi}-${wi}`} style={{ width: `${MONTH_W / 4}px`, borderLeft: wi > 0 ? '1px solid #e8e8f0' : (mi > 0 ? '1px solid #e0e0e8' : 'none'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#b0b0c0', fontWeight: '600' }}>
                         {day}
                       </div>
                     ))
-                  ).flat()
+                  }).flat()
               }
             </div>
 
             {/* ── Rows ── */}
             <div style={{ position: 'relative' }}>
-              {/* Today line */}
-              <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${todayX}px`, width: '2px', background: '#5b6bff', opacity: 0.5, zIndex: 20, pointerEvents: 'none' }} />
+              {/* Today line — RTL: today is near RIGHT side */}
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${totalGanttW - todayX}px`, width: '2px', background: '#5b6bff', opacity: 0.5, zIndex: 20, pointerEvents: 'none' }} />
 
               {flat.map(({ item }) => {
                 const cur           = items.find(i => i.id === item.id) ?? item
@@ -591,7 +595,7 @@ export default function TimelinePage() {
                       data-bar="true"
                       style={{
                         position: 'absolute', top: '50%', transform: 'translateY(-50%)',
-                        left: `${barLeft}px`, width: `${barWidth}px`,
+                        left: `${totalGanttW - barLeft - barWidth}px`, width: `${barWidth}px`,
                         height: '28px', borderRadius: '6px',
                         display: 'flex', alignItems: 'center',
                         fontSize: '12px', fontWeight: '600',
