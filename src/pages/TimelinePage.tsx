@@ -27,15 +27,17 @@ const CHILD_TYPE: Partial<Record<ItemType, ItemType>> = {
 }
 
 // ── Layout constants ──────────────────────────────────────────────────────
-const WEEK_W  = 62   // px per week  (weeks mode)
-const MONTH_W = 220  // px per month (months mode)
-const PDF_WEEKS = 16 // weeks shown in PDF export
+const MONTH_W   = 220  // px per month
+const PDF_WEEKS = 16   // weeks in PDF export
 
-const today      = new Date()
-const START_DATE = new Date(today.getFullYear(), today.getMonth(), 1)
+const today        = new Date()
+// Extended range: 24 months before current → current → 24 months ahead
+const START_DATE   = new Date(today.getFullYear(), today.getMonth() - 24, 1)
+const TOTAL_MONTHS = 49  // 24 past + current + 24 future
+const PDF_START    = new Date(today.getFullYear(), today.getMonth(), 1) // PDF reference
 
-const MONTHS_SYR = ['كانون الثاني','شباط','آذار','نيسان','أيار','حزيران',
-                    'تموز','آب','أيلول','تشرين الأول','تشرين الثاني','كانون الأول']
+// Helper: numeric month label e.g. "6-2026"
+function monthLabel(d: Date) { return `${d.getMonth() + 1}-${d.getFullYear()}` }
 
 // ── Flexible date↔pixel helpers (take pxPerDay so they work in both modes) ──
 function dateToX(d: string | null | undefined, pxPerDay: number): number {
@@ -73,8 +75,6 @@ function flattenTree(nodes: RoadmapItem[], depth = 0, collapsed: Set<string>): A
   return result
 }
 
-type ViewMode = 'weeks' | 'months'
-
 // ── Component ─────────────────────────────────────────────────────────────
 export default function TimelinePage() {
   const { id } = useParams<{ id: string }>()
@@ -92,7 +92,6 @@ export default function TimelinePage() {
   const [editingName, setEditingName] = useState('')
   const [exporting, setExporting]     = useState(false)
   const [treeWidth, setTreeWidth]     = useState(290)
-  const [viewMode, setViewMode]       = useState<ViewMode>('weeks')
   const [isPanning, setIsPanning]     = useState(false)
 
   const exportRef      = useRef<HTMLDivElement>(null)
@@ -100,25 +99,21 @@ export default function TimelinePage() {
   const ganttScrollRef = useRef<HTMLDivElement>(null)
   const panRef         = useRef<{ lastX: number } | null>(null)
 
-  // ── View config ──────────────────────────────────────────────────────────
-  const ganttColW   = viewMode === 'weeks' ? WEEK_W  : MONTH_W
-  const ganttCols   = viewMode === 'weeks' ? 16      : 8
-  const pxPerDay    = viewMode === 'weeks' ? WEEK_W / 7 : MONTH_W / 30.4375
-  const totalGanttW = ganttCols * ganttColW
+  // ── View config (months only) ────────────────────────────────────────────
+  const pxPerDay    = MONTH_W / 30.4375
+  const totalGanttW = TOTAL_MONTHS * MONTH_W
   const todayX      = dateToX(today.toISOString().split('T')[0], pxPerDay)
 
-  // Scroll to show current date (on the RIGHT in RTL layout)
+  // Scroll to show current month in viewport (RTL: current month is right-of-center)
   useEffect(() => {
-    const el = ganttScrollRef.current
-    if (!el) return
-    setTimeout(() => { if (el) el.scrollLeft = el.scrollWidth }, 0)
-  }, [viewMode])
-
-  // Month labels for current range
-  const monthLabels = Array.from({ length: ganttCols <= 4 ? 4 : ganttCols }, (_, i) => {
-    const d = new Date(START_DATE); d.setMonth(d.getMonth() + i)
-    return MONTHS_SYR[d.getMonth()]
-  })
+    const timer = setTimeout(() => {
+      const el = ganttScrollRef.current
+      if (!el) return
+      // In RTL layout, current month physical position = totalGanttW - todayX
+      el.scrollLeft = Math.max(0, (totalGanttW - todayX) - el.clientWidth * 0.7)
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [totalGanttW, todayX])
 
   // Keep ref in sync for drag closures
   useEffect(() => { itemsRef.current = items }, [items])
@@ -182,7 +177,7 @@ export default function TimelinePage() {
       if (!panRef.current || !ganttScrollRef.current) return
       const delta = ev.clientX - panRef.current.lastX
       panRef.current.lastX = ev.clientX
-      ganttScrollRef.current.scrollLeft += delta  // RTL: drag right → show current (right side)
+      ganttScrollRef.current.scrollLeft -= delta  // content follows hand
     }
     const onUp = () => {
       panRef.current = null; setIsPanning(false)
@@ -263,8 +258,15 @@ export default function TimelinePage() {
       const SCALE    = 3; const PNL_W = 240; const TITLE_H = 56
       const HDR_H    = 52; const ROW_H_PDF = 40; const BAR_H = 26
       const BAR_Y    = (ROW_H_PDF - BAR_H) / 2; const HANDLE_W = 9
-      const COLS     = PDF_WEEKS; const COL_W = WEEK_W; const GANTT_W = COLS * COL_W
-      const pdfPpd   = WEEK_W / 7
+      const WEEK_W_PDF = 62
+      const COLS     = PDF_WEEKS; const COL_W = WEEK_W_PDF; const GANTT_W = COLS * COL_W
+      const pdfPpd   = WEEK_W_PDF / 7
+      // PDF uses current-month start as reference (independent of app START_DATE)
+      const pdfDateToX = (d: string | null | undefined) => {
+        if (!d) return 0
+        const days = (new Date(d).getTime() - PDF_START.getTime()) / 86400000
+        return Math.max(0, days * pdfPpd)
+      }
       const totalW   = GANTT_W + PNL_W
       const totalH   = TITLE_H + HDR_H + flat.length * ROW_H_PDF
 
@@ -295,7 +297,7 @@ export default function TimelinePage() {
       // Month headers
       ctx.fillStyle = '#f5f6fa'; ctx.fillRect(0, TITLE_H, GANTT_W, 30)
       const pdfMonths = Array.from({ length: 4 }, (_, i) => {
-        const d = new Date(START_DATE); d.setMonth(d.getMonth() + i); return MONTHS_SYR[d.getMonth()]
+        const d = new Date(PDF_START); d.setMonth(d.getMonth() + i); return monthLabel(d)
       })
       const mW = GANTT_W / 4
       pdfMonths.forEach((m, i) => {
@@ -323,7 +325,7 @@ export default function TimelinePage() {
       ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, TITLE_H+HDR_H); ctx.lineTo(totalW, TITLE_H+HDR_H); ctx.stroke()
 
       // Today line
-      const tPx = dateToX(today.toISOString().split('T')[0], pdfPpd)
+      const tPx = pdfDateToX(today.toISOString().split('T')[0])
       ctx.strokeStyle = '#5b6bff'; ctx.globalAlpha = 0.5; ctx.lineWidth = 2; ctx.setLineDash([4,3])
       ctx.beginPath(); ctx.moveTo(tPx, TITLE_H+HDR_H); ctx.lineTo(tPx, totalH); ctx.stroke()
       ctx.setLineDash([]); ctx.globalAlpha = 1
@@ -338,7 +340,8 @@ export default function TimelinePage() {
           ctx.strokeStyle = '#e0e0e8'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(i*COL_W, y); ctx.lineTo(i*COL_W, y+ROW_H_PDF); ctx.stroke()
         })
         // Bar
-        const bL = dateToX(cur.start_date, pdfPpd); const bW = widthFromDates(cur.start_date, cur.end_date, pdfPpd)
+        const bL = pdfDateToX(cur.start_date)
+        const bW = (() => { const s = cur.start_date, e = cur.end_date; if (!s || !e) return 28*pdfPpd; const d = (new Date(e).getTime()-new Date(s).getTime())/86400000; return Math.max(7*pdfPpd,d*pdfPpd) })()
         if (bW > 0 && bL < GANTT_W) {
           const isDone = cur.status === 'done'
           const tc = hexToRgb(isDone ? '#6b7280' : TYPE_COLORS[cur.type].bg)
@@ -398,25 +401,6 @@ export default function TimelinePage() {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {/* View mode toggle */}
-          <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
-            {(['weeks', 'months'] as ViewMode[]).map(mode => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                style={{
-                  padding: '6px 16px', fontSize: '13px', fontWeight: '600',
-                  border: 'none', cursor: 'pointer',
-                  background: viewMode === mode ? '#5b6bff' : '#fff',
-                  color:      viewMode === mode ? '#fff'    : '#6b7280',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {mode === 'weeks' ? 'أسابيع' : 'أشهر'}
-              </button>
-            ))}
-          </div>
-
           <button onClick={exportPDF} disabled={exporting} style={{
             background: exporting ? '#f3f4f6' : '#fff', color: exporting ? '#9ca3af' : '#374151',
             border: '1px solid #e5e7eb', borderRadius: '8px', padding: '7px 14px',
@@ -527,41 +511,42 @@ export default function TimelinePage() {
         >
           <div ref={exportRef} style={{ minWidth: `${totalGanttW}px` }}>
 
-            {/* ── Month header row (RTL: current month on right) ── */}
+            {/* ── Month header row (RTL: future on left, current/past on right) ── */}
             <div style={{ display: 'flex', height: '30px', position: 'sticky', top: 0, zIndex: 10, background: '#f5f6fa', borderBottom: '1px solid #d1d5db' }}>
-              {viewMode === 'weeks'
-                ? [...monthLabels.slice(0, 4)].reverse().map((m, i) => (
-                    <div key={i} style={{ flex: 1, borderLeft: i > 0 ? '1px solid #d1d5db' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', color: '#6b7280' }}>{m}</div>
-                  ))
-                : Array.from({ length: ganttCols }, (_, i) => {
-                    const actualI = ganttCols - 1 - i
-                    const d = new Date(START_DATE); d.setMonth(d.getMonth() + actualI)
-                    return (
-                      <div key={i} style={{ width: `${MONTH_W}px`, borderLeft: i > 0 ? '1px solid #d1d5db' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', color: '#6b7280' }}>
-                        {MONTHS_SYR[d.getMonth()]}
-                      </div>
-                    )
-                  })
-              }
+              {Array.from({ length: TOTAL_MONTHS }, (_, i) => {
+                const actualI = TOTAL_MONTHS - 1 - i  // RTL: render in reverse
+                const d = new Date(START_DATE); d.setMonth(d.getMonth() + actualI)
+                const isCurrent = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()
+                return (
+                  <div key={i} style={{
+                    width: `${MONTH_W}px`, flexShrink: 0,
+                    borderLeft: i > 0 ? '1px solid #d1d5db' : 'none',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '12px', fontWeight: '700',
+                    color: isCurrent ? '#5b6bff' : '#6b7280',
+                    background: isCurrent ? '#eef2ff' : 'transparent',
+                  }}>
+                    {monthLabel(d)}
+                  </div>
+                )
+              })}
             </div>
 
-            {/* ── Sub-header row (weeks or day ticks) — RTL reversed ── */}
+            {/* ── Sub-header row (day ticks per month) — RTL reversed ── */}
             <div style={{ display: 'flex', height: '24px', position: 'sticky', top: '30px', zIndex: 10, background: '#fff', borderBottom: '1px solid #d1d5db' }}>
-              {viewMode === 'weeks'
-                ? Array.from({ length: 16 }, (_, i) => (
-                    <div key={i} style={{ width: `${WEEK_W}px`, borderLeft: i > 0 ? '1px solid #e0e0e8' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#9ca3af', fontWeight: '600' }}>
-                      {16 - i}
-                    </div>
-                  ))
-                : Array.from({ length: ganttCols }, (_, mi) => {
-                    const actualMi = ganttCols - 1 - mi
-                    return [22, 15, 8, 1].map((day, wi) => (
-                      <div key={`${actualMi}-${wi}`} style={{ width: `${MONTH_W / 4}px`, borderLeft: wi > 0 ? '1px solid #e8e8f0' : (mi > 0 ? '1px solid #e0e0e8' : 'none'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#b0b0c0', fontWeight: '600' }}>
-                        {day}
-                      </div>
-                    ))
-                  }).flat()
-              }
+              {Array.from({ length: TOTAL_MONTHS }, (_, mi) => {
+                const actualMi = TOTAL_MONTHS - 1 - mi
+                return [22, 15, 8, 1].map((day, wi) => (
+                  <div key={`${actualMi}-${wi}`} style={{
+                    width: `${MONTH_W / 4}px`, flexShrink: 0,
+                    borderLeft: wi > 0 ? '1px solid #e8e8f0' : (mi > 0 ? '1px solid #e0e0e8' : 'none'),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '10px', color: '#b0b0c0', fontWeight: '600',
+                  }}>
+                    {day}
+                  </div>
+                ))
+              }).flat()}
             </div>
 
             {/* ── Rows ── */}
@@ -580,13 +565,13 @@ export default function TimelinePage() {
                 return (
                   <div key={item.id} style={{ position: 'relative', height: `${ROW_H}px`, borderBottom: '1px solid #e5e7eb', background: selected?.id === item.id ? '#fafbff' : 'transparent' }}>
 
-                    {/* Major grid lines */}
-                    {Array.from({ length: ganttCols }, (_, i) => (
-                      <div key={i} style={{ position: 'absolute', top: 0, bottom: 0, left: `${i * ganttColW}px`, borderLeft: '1px solid #d8d8e4' }} />
+                    {/* Major grid lines (one per month) */}
+                    {Array.from({ length: TOTAL_MONTHS }, (_, i) => (
+                      <div key={i} style={{ position: 'absolute', top: 0, bottom: 0, left: `${i * MONTH_W}px`, borderLeft: '1px solid #d8d8e4' }} />
                     ))}
 
-                    {/* Minor grid lines (week ticks in months mode) */}
-                    {viewMode === 'months' && Array.from({ length: ganttCols * 4 }, (_, i) => (
+                    {/* Minor grid lines (day ticks within each month) */}
+                    {Array.from({ length: TOTAL_MONTHS * 4 }, (_, i) => (
                       <div key={`m${i}`} style={{ position: 'absolute', top: 0, bottom: 0, left: `${i * (MONTH_W / 4)}px`, borderLeft: i % 4 === 0 ? 'none' : '1px solid #eeeef5' }} />
                     ))}
 
