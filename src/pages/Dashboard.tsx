@@ -17,6 +17,10 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
   const [deleteInput, setDeleteInput]   = useState('')
   const [deleting, setDeleting]         = useState(false)
 
+  // Edit project state
+  const [editTarget, setEditTarget] = useState<Project | null>(null)
+  const [editForm, setEditForm]     = useState({ name: '', color: PROJECT_COLORS[0] })
+
   const load = async () => {
     const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
     setProjects(data ?? [])
@@ -45,6 +49,14 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
     setDeleteTarget(null)
     setDeleteInput('')
     setDeleting(false)
+  }
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editTarget) return
+    const { data } = await supabase.from('projects').update(editForm).eq('id', editTarget.id).select().single()
+    if (data) setProjects(p => p.map(x => x.id === data.id ? data : x))
+    setEditTarget(null)
   }
 
   const logout = () => supabase.auth.signOut()
@@ -134,6 +146,7 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
                 index={projects.indexOf(p)}
                 isAdmin={isAdmin}
                 onClick={() => navigate(`/project/${p.id}`)}
+                onEdit={e => { e.stopPropagation(); setEditTarget(p); setEditForm({ name: p.name, color: p.color }) }}
                 onDelete={e => { e.stopPropagation(); setDeleteTarget(p); setDeleteInput('') }}
               />
             ))}
@@ -266,178 +279,13 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
         </div>
       )}
 
-      {/* ── Delete Confirmation Modal ── */}
-      {deleteTarget && (
-        <div
-          onClick={() => { setDeleteTarget(null); setDeleteInput('') }}
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 50, padding: '24px',
-          }}>
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: '#fff', borderRadius: '20px',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-              width: '100%', maxWidth: '420px',
-              padding: '32px',
-              display: 'flex', flexDirection: 'column', gap: '20px',
-            }}>
-            {/* Icon + title */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', textAlign: 'center' }}>
-              <div style={{
-                width: '52px', height: '52px', borderRadius: '50%',
-                background: '#fef2f2', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', fontSize: '22px',
-              }}>🗑</div>
-              <h3 style={{ fontSize: '17px', fontWeight: '800', margin: 0, color: '#111827' }}>
-                حذف المشروع نهائياً
-              </h3>
-              <p style={{ fontSize: '13px', color: '#6b7280', margin: 0, lineHeight: '1.6' }}>
-                سيتم حذف مشروع <strong style={{ color: '#111827' }}>{deleteTarget.name}</strong> وجميع بنوده بشكل نهائي ولا يمكن التراجع عن هذا الإجراء.
-              </p>
-            </div>
+      {/* ── Edit Project Modal ── */}
+      {editTarget && (
+        <div onClick={() => setEditTarget(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '24px' }}>
+          <form onSubmit={saveEdit} onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', width: '100%', maxWidth: '400px', padding: '32px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontSize: '17px', fontWeight: '800', margin: 0 }}>تعديل المشروع</h3>
 
-            {/* Divider */}
-            <div style={{ height: '1px', background: '#f3f4f6' }} />
-
-            {/* Confirmation input */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600' }}>
-                اكتب <code style={{ background: '#f3f4f6', padding: '2px 7px', borderRadius: '5px', fontFamily: 'monospace', color: '#ef4444' }}>delete</code> للتأكيد
-              </label>
+              <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>اسم المشروع *</label>
               <input
-                autoFocus
-                value={deleteInput}
-                onChange={e => setDeleteInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') confirmDelete() }}
-                placeholder="delete"
-                style={{
-                  border: `1.5px solid ${deleteInput === 'delete' ? '#ef4444' : '#e5e7eb'}`,
-                  borderRadius: '10px', padding: '11px 14px', fontSize: '14px',
-                  background: '#f9fafb', outline: 'none', width: '100%',
-                  fontFamily: 'monospace', letterSpacing: '0.5px',
-                  transition: 'border-color 0.15s',
-                }}
-              />
-            </div>
-
-            {/* Buttons */}
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                onClick={() => { setDeleteTarget(null); setDeleteInput('') }}
-                style={{
-                  flex: 1, padding: '12px', borderRadius: '10px',
-                  border: '1.5px solid #e5e7eb', background: '#fff',
-                  fontSize: '14px', color: '#6b7280', cursor: 'pointer', fontWeight: '600',
-                }}>
-                إلغاء
-              </button>
-              <button
-                onClick={confirmDelete}
-                disabled={deleteInput !== 'delete' || deleting}
-                style={{
-                  flex: 1, padding: '12px', borderRadius: '10px',
-                  border: 'none', fontSize: '14px', fontWeight: '700',
-                  cursor: deleteInput === 'delete' && !deleting ? 'pointer' : 'not-allowed',
-                  background: deleteInput === 'delete' ? '#ef4444' : '#fca5a5',
-                  color: '#fff', transition: 'background 0.15s',
-                }}>
-                {deleting ? 'جارٍ الحذف...' : 'حذف نهائياً'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  )
-}
-
-const PROGRESS = [35, 72, 18, 55, 90, 10]
-
-function ProjectCard({
-  project, index, isAdmin, onClick, onDelete,
-}: {
-  project: Project
-  index: number
-  isAdmin: boolean
-  onClick: () => void
-  onDelete: (e: React.MouseEvent) => void
-}) {
-  const pct = PROGRESS[index % PROGRESS.length]
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        background: '#fff', borderRadius: '16px',
-        border: '1px solid #e5e7eb',
-        padding: '24px', cursor: 'pointer',
-        position: 'relative', overflow: 'hidden',
-        display: 'flex', flexDirection: 'column', gap: '16px',
-        transition: 'all 0.2s',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-      }}
-      onMouseEnter={e => {
-        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)'
-        ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 24px rgba(0,0,0,0.10)'
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
-        ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px rgba(0,0,0,0.04)'
-      }}
-    >
-      {/* Top color accent */}
-      <div style={{
-        position: 'absolute', top: 0, right: 0, left: 0,
-        height: '4px', background: project.color, borderRadius: '16px 16px 0 0',
-      }} />
-
-      {/* Card header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginTop: '4px' }}>
-        <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0, lineHeight: '1.4' }}>{project.name}</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          <span style={{
-            fontSize: '11px', fontWeight: '700', padding: '4px 10px',
-            borderRadius: '20px', background: '#eef2ff', color: '#5b6bff',
-          }}>جارٍ</span>
-          {isAdmin && (
-            <button
-              onClick={onDelete}
-              title="حذف المشروع"
-              style={{
-                width: '28px', height: '28px', borderRadius: '7px',
-                border: '1px solid #fee2e2', background: '#fef2f2',
-                color: '#f87171', cursor: 'pointer', fontSize: '13px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
-              }}>
-              🗑
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Description */}
-      {project.description && (
-        <p style={{ fontSize: '13px', color: '#6b7280', margin: 0, lineHeight: '1.6' }}>
-          {project.description}
-        </p>
-      )}
-
-      {/* Progress */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#9ca3af' }}>
-          <span>التقدم</span>
-          <span style={{ fontWeight: '600', color: '#374151' }}>{pct}%</span>
-        </div>
-        <div style={{ height: '6px', borderRadius: '99px', background: '#f0f0f5', overflow: 'hidden' }}>
-          <div style={{ height: '100%', borderRadius: '99px', background: project.color, width: `${pct}%`, transition: 'width 0.5s' }} />
-        </div>
-      </div>
-    </div>
-  )
-}
+                autoFocus value={editForm.name} onChang

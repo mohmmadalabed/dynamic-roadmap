@@ -365,22 +365,24 @@ export default function TimelinePage() {
           ctx.beginPath(); ctx.roundRect(bL, y+BAR_Y, HANDLE_W, BAR_H, [5,0,0,5]); ctx.fill()
           if (cW >= HANDLE_W*2) { ctx.beginPath(); ctx.roundRect(bL+cW-HANDLE_W, y+BAR_Y, HANDLE_W, BAR_H, [0,5,5,0]); ctx.fill() }
           if (cW > HANDLE_W*2+20) {
-            // RTL bar label: dots → priority icon → title (right to left)
-            const textY    = y + ROW_H_PDF / 2 + 4
+            // Bar label: priority(right) → title → dots(left)
+            const textY     = y + ROW_H_PDF / 2 + 4
             const rightEdge = bL + cW - HANDLE_W - 5
-            // dots
-            const dots = '•'.repeat(depth + 1)
-            ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right'
-            ctx.fillText(dots, rightEdge, textY)
-            const dotsW = ctx.measureText(dots).width
-            // priority icon
+            const leftEdge  = bL + HANDLE_W + 5
+            // priority icon (rightmost)
             const pIcon = PRIORITY_ICONS[cur.priority]
-            ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = 'bold 10px sans-serif'
-            ctx.fillText(pIcon, rightEdge - dotsW - 4, textY)
+            ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'right'
+            ctx.fillText(pIcon, rightEdge, textY)
             const iconW = ctx.measureText(pIcon).width
-            // title
-            const titleRight = rightEdge - dotsW - iconW - 10
-            const availW = titleRight - (bL + HANDLE_W + 4)
+            // dots (leftmost)
+            const dots = '•'.repeat(depth + 1)
+            ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left'
+            ctx.fillText(dots, leftEdge, textY)
+            const dotsW = ctx.measureText(dots).width
+            // title (between)
+            const titleRight = rightEdge - iconW - 6
+            const titleLeft  = leftEdge + dotsW + 6
+            const availW = titleRight - titleLeft
             if (availW > 16) {
               ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right'
               const maxC = Math.floor(availW / 6.5)
@@ -723,9 +725,9 @@ export default function TimelinePage() {
                         onMouseDown={e => setupBarDrag(e, cur, 'resize-left')} />
                       {/* Label: RTL layout — dots → priority → title (right to left) */}
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', flexDirection: 'row-reverse', paddingRight: '14px', paddingLeft: '12px', gap: '5px', overflow: 'hidden', minWidth: 0 }}>
-                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.75)', letterSpacing: '-1px', flexShrink: 0 }}>{depthDots(depth)}</span>
                         <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.9)', letterSpacing: '-1px', flexShrink: 0 }}>{PRIORITY_ICONS[cur.priority]}</span>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', fontWeight: '600', flex: 1, textAlign: 'right' }}>{cur.name}</span>
+                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.75)', letterSpacing: '-1px', flexShrink: 0 }}>{depthDots(depth)}</span>
                       </div>
                       <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '10px', cursor: 'ew-resize', background: priorityColor, borderRadius: '0 6px 6px 0', zIndex: 2 }}
                         onMouseDown={e => setupBarDrag(e, cur, 'resize-right')} />
@@ -789,109 +791,3 @@ function SidePanel({ item, onSave, onDelete, onClose, onAddChild }: {
   // Reset fields when switching items
   useEffect(() => {
     skipSave.current = true
-    setName(item.name)
-    setStart(item.start_date ?? ''); setEnd(item.end_date ?? '')
-    setPriority(item.priority); setStatus(item.status)
-    setSaveStatus('idle')
-  }, [item.id])
-
-  // Autosave with 700ms debounce
-  useEffect(() => {
-    if (skipSave.current) { skipSave.current = false; return }
-    setSaveStatus('saving')
-    const t = setTimeout(() => {
-      onSave({ name, start_date: start, end_date: end, priority, status })
-      setSaveStatus('saved')
-      setTimeout(() => setSaveStatus('idle'), 2000)
-    }, 700)
-    return () => clearTimeout(t)
-  }, [name, start, end, priority, status])
-
-  const priorities: Priority[] = ['critical', 'high', 'medium', 'low']
-  const statuses:   Status[]   = ['not_started', 'in_progress', 'done', 'blocked']
-  const PRIORITY_LABELS: Record<Priority, string> = { critical: '⬆⬆ حرج', high: '⬆ عالي', medium: '◎ متوسط', low: '⬇ منخفض' }
-
-  return (
-    <div id="side-panel" style={{ width: '360px', flexShrink: 0, background: '#fff', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e5e7eb', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)' }}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '16px' }}>{TYPE_ICONS[item.type]}</span>
-          <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151' }}>{TYPE_LABELS[item.type]}</span>
-          <span style={{ fontSize: '12px', padding: '2px 8px', borderRadius: '99px', background: `${PRIORITY_COLORS[item.priority]}15`, color: PRIORITY_COLORS[item.priority], fontWeight: '600' }}>
-            {PRIORITY_LABELS[item.priority]}
-          </span>
-        </div>
-        <button onClick={onClose} style={{ width: '28px', height: '28px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#9ca3af', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-      </div>
-
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        <Section><Field label="الاسم">
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="اسم البند" style={inputStyle}
-            onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
-        </Field></Section>
-
-        <Section><Field label="المدة الزمنية">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <span style={{ fontSize: '12px', color: '#9ca3af' }}>البداية</span>
-              <input type="date" value={start} onChange={e => setStart(e.target.value)} style={{ ...inputStyle, fontSize: '13px', padding: '8px 10px' }}
-                onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <span style={{ fontSize: '12px', color: '#9ca3af' }}>النهاية</span>
-              <input type="date" value={end} onChange={e => setEnd(e.target.value)} style={{ ...inputStyle, fontSize: '13px', padding: '8px 10px' }}
-                onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
-            </div>
-          </div>
-        </Field></Section>
-
-        <Section>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <Field label="الأولوية">
-              <select value={priority} onChange={e => setPriority(e.target.value as Priority)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                {priorities.map(p => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
-              </select>
-            </Field>
-            <Field label="الحالة">
-              <select value={status} onChange={e => setStatus(e.target.value as Status)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                {statuses.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-              </select>
-            </Field>
-          </div>
-        </Section>
-
-        {onAddChild && (
-          <Section>
-            <button onClick={onAddChild} style={{ width: '100%', padding: '11px', borderRadius: '10px', fontSize: '14px', fontWeight: '600', color: '#5b6bff', background: '#f5f3ff', border: '1.5px dashed #c4b5fd', cursor: 'pointer' }}>
-              + إضافة {TYPE_LABELS[CHILD_TYPE[item.type]!]}
-            </button>
-          </Section>
-        )}
-      </div>
-
-      <div style={{ padding: '14px 20px', borderTop: '1px solid #f0f0f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fafafa' }}>
-        <span style={{ fontSize: '12px', color: saveStatus === 'saved' ? '#16a34a' : saveStatus === 'saving' ? '#9ca3af' : 'transparent', transition: 'color 0.3s' }}>
-          {saveStatus === 'saving' ? '⏳ جارٍ الحفظ...' : '✓ تم الحفظ'}
-        </span>
-        <button onClick={onDelete} style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #fee2e2', background: '#fef2f2', color: '#f87171', cursor: 'pointer', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🗑</button>
-      </div>
-    </div>
-  )
-}
-
-const inputStyle: React.CSSProperties = {
-  border: '1.5px solid #e5e7eb', borderRadius: '10px', padding: '10px 14px',
-  fontSize: '14px', background: '#f9fafb', outline: 'none', width: '100%',
-  transition: 'border-color 0.15s', fontFamily: 'inherit',
-}
-function Section({ children }: { children: React.ReactNode }) {
-  return <div style={{ padding: '16px 20px', borderBottom: '1px solid #f5f5f8' }}>{children}</div>
-}
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <label style={{ fontSize: '12px', fontWeight: '700', color: '#9ca3af' }}>{label}</label>
-      {children}
-    </div>
-  )
-}

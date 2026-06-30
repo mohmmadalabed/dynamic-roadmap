@@ -107,11 +107,4 @@ export default function LoginPage() {
               border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
               transition: 'all 0.2s',
               boxShadow: '0 4px 12px rgba(91,107,255,0.3)',
-            }}>
-            {loading ? 'جارٍ الدخول...' : 'تسجيل الدخول'}
-          </button>
-        </form>
-      </div>
-    </div>
-  )
-}
+   
