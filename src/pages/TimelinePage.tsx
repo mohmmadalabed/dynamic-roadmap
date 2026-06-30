@@ -4,20 +4,29 @@ import { supabase } from '../lib/supabase'
 import type { Project, RoadmapItem, Priority, Status, ItemType } from '../types'
 
 const PRIORITY_COLORS: Record<Priority, string> = {
-  critical: '#ef4444', high: '#f97316', medium: '#d97706', low: '#3b82f6'
+  critical: '#ef4444', high: '#f97316', medium: '#3b82f6', low: '#22c55e'
 }
+const PRIORITY_ICONS: Record<Priority, string> = {
+  critical: '⬆⬆', high: '⬆', medium: '◎', low: '⬇'
+}
+// depth → blue gradient (dark → light), all support white text
+const DEPTH_COLORS = ['#0f2d6e', '#1e3a8a', '#1d4ed8', '#2563eb', '#3b82f6']
+const DONE_COLOR   = '#15803d'
+const depthDots    = (d: number) => '•'.repeat(d + 1)
+const depthColor   = (d: number) => DEPTH_COLORS[Math.min(d, DEPTH_COLORS.length - 1)]
+// TYPE_COLORS kept only for SVG connectors (uses depth color via depthColor)
 const TYPE_COLORS: Record<ItemType, { bg: string; text: string }> = {
-  goal:    { bg: '#5b6bff', text: '#fff' },
-  feature: { bg: '#0891b2', text: '#fff' },
-  story:   { bg: '#7c3aed', text: '#fff' },
-  task:    { bg: '#16a34a', text: '#fff' },
-  subtask: { bg: '#6b7280', text: '#fff' },
+  goal:    { bg: DEPTH_COLORS[0], text: '#fff' },
+  feature: { bg: DEPTH_COLORS[1], text: '#fff' },
+  story:   { bg: DEPTH_COLORS[2], text: '#fff' },
+  task:    { bg: DEPTH_COLORS[3], text: '#fff' },
+  subtask: { bg: DEPTH_COLORS[4], text: '#fff' },
 }
 const STATUS_LABELS: Record<Status, string> = {
   not_started: 'لم يبدأ', in_progress: 'جارٍ', done: 'مكتمل', blocked: 'معلّق'
 }
 const TYPE_ICONS: Record<ItemType, string> = {
-  goal: '🎯', feature: '⭐', story: '📖', task: '✅', subtask: '🔹'
+  goal: '🎯', feature: '⭐', story: '📖', task: '🔧', subtask: '🔹'
 }
 const TYPE_LABELS: Record<ItemType, string> = {
   goal: 'هدف', feature: 'ميزة', story: 'قصة', task: 'مهمة', subtask: 'مهمة فرعية'
@@ -267,8 +276,9 @@ export default function TimelinePage() {
         const days = (new Date(d).getTime() - PDF_START.getTime()) / 86400000
         return Math.max(0, days * pdfPpd)
       }
+      const LEGEND_H = 54
       const totalW   = GANTT_W + PNL_W
-      const totalH   = TITLE_H + HDR_H + flat.length * ROW_H_PDF
+      const totalH   = TITLE_H + HDR_H + flat.length * ROW_H_PDF + LEGEND_H
 
       const cv = document.createElement('canvas')
       cv.width = totalW * SCALE; cv.height = totalH * SCALE
@@ -344,7 +354,7 @@ export default function TimelinePage() {
         const bW = (() => { const s = cur.start_date, e = cur.end_date; if (!s || !e) return 28*pdfPpd; const d = (new Date(e).getTime()-new Date(s).getTime())/86400000; return Math.max(7*pdfPpd,d*pdfPpd) })()
         if (bW > 0 && bL < GANTT_W) {
           const isDone = cur.status === 'done'
-          const tc = hexToRgb(isDone ? '#6b7280' : TYPE_COLORS[cur.type].bg)
+          const tc = hexToRgb(isDone ? DONE_COLOR : depthColor(depth))
           const pc = hexToRgb(PRIORITY_COLORS[cur.priority])
           const cW = Math.min(bW, GANTT_W - bL)
           ctx.shadowColor = 'rgba(0,0,0,0.1)'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1
@@ -355,20 +365,96 @@ export default function TimelinePage() {
           ctx.beginPath(); ctx.roundRect(bL, y+BAR_Y, HANDLE_W, BAR_H, [5,0,0,5]); ctx.fill()
           if (cW >= HANDLE_W*2) { ctx.beginPath(); ctx.roundRect(bL+cW-HANDLE_W, y+BAR_Y, HANDLE_W, BAR_H, [0,5,5,0]); ctx.fill() }
           if (cW > HANDLE_W*2+20) {
-            ctx.fillStyle = '#fff'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left'
-            const maxC = Math.floor((cW-HANDLE_W*2-10)/7)
-            ctx.fillText(cur.name.length > maxC ? cur.name.slice(0,maxC)+'…' : cur.name, bL+HANDLE_W+6, y+ROW_H_PDF/2+4)
+            // RTL bar label: dots → priority icon → title (right to left)
+            const textY    = y + ROW_H_PDF / 2 + 4
+            const rightEdge = bL + cW - HANDLE_W - 5
+            // dots
+            const dots = '•'.repeat(depth + 1)
+            ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right'
+            ctx.fillText(dots, rightEdge, textY)
+            const dotsW = ctx.measureText(dots).width
+            // priority icon
+            const pIcon = PRIORITY_ICONS[cur.priority]
+            ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = 'bold 10px sans-serif'
+            ctx.fillText(pIcon, rightEdge - dotsW - 4, textY)
+            const iconW = ctx.measureText(pIcon).width
+            // title
+            const titleRight = rightEdge - dotsW - iconW - 10
+            const availW = titleRight - (bL + HANDLE_W + 4)
+            if (availW > 16) {
+              ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right'
+              const maxC = Math.floor(availW / 6.5)
+              ctx.fillText(cur.name.length > maxC ? cur.name.slice(0, maxC) + '…' : cur.name, titleRight, textY)
+            }
           }
         }
-        // Tree label
-        const dotC = hexToRgb(PRIORITY_COLORS[cur.priority])
-        ctx.fillStyle = `rgb(${dotC.r},${dotC.g},${dotC.b})`
-        ctx.beginPath(); ctx.roundRect(GANTT_W+10, y+ROW_H_PDF/2-4, 8, 8, 2); ctx.fill()
+        // Tree label: priority icon + dots + name (RTL)
+        const treeY   = y + ROW_H_PDF / 2 + 5
+        const treeRight = totalW - 10 - depth * 10
+        const pIconC  = hexToRgb(PRIORITY_COLORS[cur.priority])
+        ctx.fillStyle = `rgb(${pIconC.r},${pIconC.g},${pIconC.b})`
+        ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'right'
+        ctx.fillText(PRIORITY_ICONS[cur.priority], treeRight, treeY)
+        const pIconW = ctx.measureText(PRIORITY_ICONS[cur.priority]).width
+        const dotsStr = '•'.repeat(depth + 1)
+        ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif'
+        ctx.fillText(dotsStr, treeRight - pIconW - 4, treeY)
+        const dotsW2 = ctx.measureText(dotsStr).width
         ctx.fillStyle = depth === 0 ? '#111827' : '#374151'
-        ctx.font = depth === 0 ? 'bold 13px sans-serif' : '13px sans-serif'; ctx.textAlign = 'right'
-        const raw = `${TYPE_ICONS[cur.type]} ${cur.name}`
-        const maxC = Math.floor((PNL_W-36-depth*12)/8)
-        ctx.fillText(raw.length > maxC ? raw.slice(0,maxC)+'…' : raw, totalW-14-depth*12, y+ROW_H_PDF/2+5)
+        ctx.font = depth === 0 ? 'bold 12px sans-serif' : '12px sans-serif'
+        const availTree = PNL_W - pIconW - dotsW2 - 28 - depth * 10
+        const maxCT = Math.floor(availTree / 6.5)
+        ctx.fillText(cur.name.length > maxCT ? cur.name.slice(0, maxCT) + '…' : cur.name, treeRight - pIconW - dotsW2 - 10, treeY)
+      })
+
+      // ── Legend ──────────────────────────────────────────────
+      const ly = TITLE_H + HDR_H + flat.length * ROW_H_PDF
+      const LY_MID = ly + LEGEND_H / 2
+      const CHIP = 11
+
+      ctx.fillStyle = '#f9fafb'; ctx.fillRect(0, ly, totalW, LEGEND_H)
+      ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(totalW, ly); ctx.stroke()
+      // vertical divider
+      ctx.beginPath(); ctx.moveTo(totalW / 2, ly + 10); ctx.lineTo(totalW / 2, ly + LEGEND_H - 10); ctx.stroke()
+
+      // ── Right half: depth gradient + done ──
+      ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right'
+      ctx.fillText('المستوى:', totalW - 10, LY_MID + 4)
+      let rx = totalW - 76
+      DEPTH_COLORS.forEach((col, di) => {
+        const rc = hexToRgb(col)
+        ctx.fillStyle = `rgb(${rc.r},${rc.g},${rc.b})`
+        ctx.beginPath(); ctx.roundRect(rx - CHIP, LY_MID - CHIP / 2, CHIP, CHIP, 3); ctx.fill()
+        ctx.fillStyle = '#374151'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'
+        ctx.fillText(`${'•'.repeat(di + 1)}`, rx - CHIP - 4, LY_MID + 4)
+        rx -= 42
+      })
+      // done chip
+      const doneRgb2 = hexToRgb(DONE_COLOR)
+      ctx.fillStyle = `rgb(${doneRgb2.r},${doneRgb2.g},${doneRgb2.b})`
+      ctx.beginPath(); ctx.roundRect(rx - CHIP, LY_MID - CHIP / 2, CHIP, CHIP, 3); ctx.fill()
+      ctx.fillStyle = '#374151'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right'
+      ctx.fillText('مكتمل', rx - CHIP - 4, LY_MID + 4)
+
+      // ── Left half: priority ──
+      const priorityEntries: [string, string, string][] = [
+        ['⬆⬆', 'حرج', '#ef4444'], ['⬆', 'عالي', '#f97316'],
+        ['◎', 'متوسط', '#3b82f6'], ['⬇', 'منخفض', '#22c55e'],
+      ]
+      ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'
+      ctx.fillText('الأولوية:', 10, LY_MID + 4)
+      let lxp = 76
+      priorityEntries.forEach(([icon, label, color]) => {
+        const rc = hexToRgb(color)
+        ctx.fillStyle = `rgb(${rc.r},${rc.g},${rc.b})`
+        ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'
+        ctx.fillText(icon, lxp, LY_MID + 4)
+        const iconW = ctx.measureText(icon).width
+        ctx.fillStyle = '#374151'; ctx.font = '11px sans-serif'
+        ctx.fillText(label, lxp + iconW + 4, LY_MID + 4)
+        const labelW = ctx.measureText(label).width
+        lxp += iconW + labelW + 18
       })
 
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
@@ -461,7 +547,7 @@ export default function TimelinePage() {
                   style={{
                     display: 'flex', alignItems: 'center', height: `${ROW_H}px`,
                     gap: '6px', cursor: 'pointer', borderBottom: '1px solid #f0f0f5',
-                    background: isSelected ? '#eef2ff' : isHovered ? '#f9fafb' : '#fff',
+                    background: isSelected ? '#eef2ff' : isHovered ? `${depthColor(depth)}18` : '#fff',
                     paddingRight: `${12 + depth * 16}px`, paddingLeft: '10px',
                     transition: 'background 0.1s',
                   }}
@@ -473,8 +559,8 @@ export default function TimelinePage() {
                     onClick={e => { e.stopPropagation(); if (hasChildren) toggleCollapse(item.id) }}>
                     {hasChildren ? (isCollapsed ? '▶' : '▼') : ''}
                   </span>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: PRIORITY_COLORS[item.priority], flexShrink: 0 }} />
-                  <span style={{ fontSize: '13px', flexShrink: 0 }}>{TYPE_ICONS[item.type]}</span>
+                  <span style={{ fontSize: '10px', color: PRIORITY_COLORS[item.priority], flexShrink: 0, minWidth: '18px', textAlign: 'center', letterSpacing: '-2px', lineHeight: 1 }}>{PRIORITY_ICONS[item.priority]}</span>
+                  <span style={{ fontSize: '11px', color: '#9ca3af', letterSpacing: '-1px', flexShrink: 0, minWidth: '20px' }}>{depthDots(depth)}</span>
                   {isEditing ? (
                     <input autoFocus value={editingName} onChange={e => setEditingName(e.target.value)}
                       onBlur={() => commitRename(item.id)}
@@ -570,7 +656,7 @@ export default function TimelinePage() {
                   const x   = totalGanttW - dateToX(cur.start_date, pxPerDay)
                   const y1  = parentIdx * ROW_H + ROW_H
                   const y2  = lastIdx   * ROW_H + ROW_H / 2
-                  const color = TYPE_COLORS[item.type].bg
+                  const color = depthColor(depth)
                   connectors.push(
                     <g key={item.id}>
                       <line x1={x} y1={y1} x2={x} y2={y2} stroke={color} strokeWidth={1.5} strokeDasharray="5 4" opacity={0.45} />
@@ -592,16 +678,19 @@ export default function TimelinePage() {
                 )
               })()}
 
-              {flat.map(({ item }) => {
+              {flat.map(({ item, depth }) => {
                 const cur           = items.find(i => i.id === item.id) ?? item
                 const barLeft       = dateToX(cur.start_date, pxPerDay)
                 const barWidth      = widthFromDates(cur.start_date, cur.end_date, pxPerDay)
                 const isDone        = cur.status === 'done'
-                const barBg         = isDone ? '#6b7280' : TYPE_COLORS[cur.type].bg
+                const barBg         = isDone ? DONE_COLOR : depthColor(depth)
                 const priorityColor = PRIORITY_COLORS[cur.priority]
 
                 return (
-                  <div key={item.id} style={{ position: 'relative', height: `${ROW_H}px`, borderBottom: '1px solid #e5e7eb', background: selected?.id === item.id ? '#fafbff' : 'transparent' }}>
+                  <div key={item.id}
+                    onMouseEnter={() => setHoveredId(item.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    style={{ position: 'relative', height: `${ROW_H}px`, borderBottom: '1px solid #e5e7eb', background: selected?.id === item.id ? '#fafbff' : hoveredId === item.id ? `${TYPE_COLORS[cur.type].bg}14` : 'transparent' }}>
 
                     {/* Major grid lines (one per month) */}
                     {Array.from({ length: TOTAL_MONTHS }, (_, i) => (
@@ -632,9 +721,12 @@ export default function TimelinePage() {
                     >
                       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '10px', cursor: 'ew-resize', background: priorityColor, borderRadius: '6px 0 0 6px', zIndex: 2 }}
                         onMouseDown={e => setupBarDrag(e, cur, 'resize-left')} />
-                      <span style={{ paddingRight: '16px', paddingLeft: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                        {isDone ? '✓' : TYPE_ICONS[cur.type]} {cur.name}
-                      </span>
+                      {/* Label: RTL layout — dots → priority → title (right to left) */}
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', flexDirection: 'row-reverse', paddingRight: '14px', paddingLeft: '12px', gap: '5px', overflow: 'hidden', minWidth: 0 }}>
+                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.75)', letterSpacing: '-1px', flexShrink: 0 }}>{depthDots(depth)}</span>
+                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.9)', letterSpacing: '-1px', flexShrink: 0 }}>{PRIORITY_ICONS[cur.priority]}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', fontWeight: '600', flex: 1, textAlign: 'right' }}>{cur.name}</span>
+                      </div>
                       <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '10px', cursor: 'ew-resize', background: priorityColor, borderRadius: '0 6px 6px 0', zIndex: 2 }}
                         onMouseDown={e => setupBarDrag(e, cur, 'resize-right')} />
                     </div>
@@ -667,9 +759,9 @@ export default function TimelinePage() {
       {/* ── Footer legend ── */}
       <div style={{ background: '#fff', borderTop: '1px solid #e5e7eb', height: '42px', display: 'flex', alignItems: 'center', gap: '20px', padding: '0 16px' }}>
         <span style={{ fontSize: '12px', fontWeight: '700', color: '#9ca3af' }}>الأولوية:</span>
-        {(Object.entries(PRIORITY_COLORS) as [Priority, string][]).map(([p, c]) => (
-          <div key={p} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#6b7280' }}>
-            <div style={{ width: '9px', height: '9px', borderRadius: '2px', background: c }} />
+        {(Object.entries(PRIORITY_ICONS) as [Priority, string][]).map(([p, icon]) => (
+          <div key={p} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#6b7280' }}>
+            <span style={{ fontSize: '11px', color: PRIORITY_COLORS[p], letterSpacing: '-2px', lineHeight: 1 }}>{icon}</span>
             {p === 'critical' ? 'حرج' : p === 'high' ? 'عالي' : p === 'medium' ? 'متوسط' : 'منخفض'}
           </div>
         ))}
@@ -691,17 +783,33 @@ function SidePanel({ item, onSave, onDelete, onClose, onAddChild }: {
   const [end, setEnd]           = useState(item.end_date ?? '')
   const [priority, setPriority] = useState<Priority>(item.priority)
   const [status, setStatus]     = useState<Status>(item.status)
+  const [saveStatus, setSaveStatus] = useState<'idle'|'saving'|'saved'>('idle')
+  const skipSave = useRef(true)
 
+  // Reset fields when switching items
   useEffect(() => {
+    skipSave.current = true
     setName(item.name)
     setStart(item.start_date ?? ''); setEnd(item.end_date ?? '')
     setPriority(item.priority); setStatus(item.status)
+    setSaveStatus('idle')
   }, [item.id])
 
-  const save = () => onSave({ name, start_date: start, end_date: end, priority, status })
+  // Autosave with 700ms debounce
+  useEffect(() => {
+    if (skipSave.current) { skipSave.current = false; return }
+    setSaveStatus('saving')
+    const t = setTimeout(() => {
+      onSave({ name, start_date: start, end_date: end, priority, status })
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    }, 700)
+    return () => clearTimeout(t)
+  }, [name, start, end, priority, status])
+
   const priorities: Priority[] = ['critical', 'high', 'medium', 'low']
   const statuses:   Status[]   = ['not_started', 'in_progress', 'done', 'blocked']
-  const PRIORITY_LABELS: Record<Priority, string> = { critical: 'حرج', high: 'عالي', medium: 'متوسط', low: 'منخفض' }
+  const PRIORITY_LABELS: Record<Priority, string> = { critical: '⬆⬆ حرج', high: '⬆ عالي', medium: '◎ متوسط', low: '⬇ منخفض' }
 
   return (
     <div id="side-panel" style={{ width: '360px', flexShrink: 0, background: '#fff', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e5e7eb', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)' }}>
@@ -761,9 +869,11 @@ function SidePanel({ item, onSave, onDelete, onClose, onAddChild }: {
         )}
       </div>
 
-      <div style={{ padding: '14px 20px', borderTop: '1px solid #f0f0f5', display: 'flex', gap: '10px', background: '#fafafa' }}>
-        <button onClick={save} style={{ flex: 1, padding: '11px', borderRadius: '10px', background: '#5b6bff', color: '#fff', fontWeight: '700', fontSize: '14px', border: 'none', cursor: 'pointer' }}>حفظ التغييرات</button>
-        <button onClick={onDelete} style={{ width: '44px', height: '44px', borderRadius: '10px', border: '1px solid #fee2e2', background: '#fef2f2', color: '#f87171', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🗑</button>
+      <div style={{ padding: '14px 20px', borderTop: '1px solid #f0f0f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fafafa' }}>
+        <span style={{ fontSize: '12px', color: saveStatus === 'saved' ? '#16a34a' : saveStatus === 'saving' ? '#9ca3af' : 'transparent', transition: 'color 0.3s' }}>
+          {saveStatus === 'saving' ? '⏳ جارٍ الحفظ...' : '✓ تم الحفظ'}
+        </span>
+        <button onClick={onDelete} style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #fee2e2', background: '#fef2f2', color: '#f87171', cursor: 'pointer', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🗑</button>
       </div>
     </div>
   )
