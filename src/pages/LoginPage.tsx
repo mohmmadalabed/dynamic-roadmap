@@ -42,8 +42,11 @@ export default function LoginPage() {
             width: '60px', height: '60px', borderRadius: '18px',
             background: 'linear-gradient(135deg,#5b6bff,#7c3aed)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '28px', boxShadow: '0 4px 16px rgba(91,107,255,0.3)',
-          }}>🗺</div>
+            fontWeight: '800', fontSize: '20px', letterSpacing: '0.5px',
+            color: '#fff', fontFamily: "'Noto Kufi Arabic', sans-serif",
+            boxShadow: '0 4px 16px rgba(91,107,255,0.3)',
+            userSelect: 'none',
+          }}>DR</div>
           <h1 style={{ fontSize: '20px', fontWeight: '800', letterSpacing: '-0.5px', margin: 0 }}>Dynamic Roadmap</h1>
           <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0 }}>منصة تخطيط المشاريع المرئي</p>
         </div>
