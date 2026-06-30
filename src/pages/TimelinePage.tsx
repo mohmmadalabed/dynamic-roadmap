@@ -151,7 +151,7 @@ export default function TimelinePage() {
       end_date: new Date(Date.now() + 14*86400000).toISOString().split('T')[0]
     }
     const { data } = await supabase.from('roadmap_items').insert(newItem).select().single()
-    if (data) { await reload(); setSelected(data) }
+    if (data) { await reload() }
   }
 
   const saveItem = async (updated: Partial<RoadmapItem>) => {
@@ -649,19 +649,18 @@ function SidePanel({ item, onSave, onDelete, onClose, onAddChild }: {
   onDelete: () => void; onClose: () => void; onAddChild?: () => void
 }) {
   const [name, setName]         = useState(item.name)
-  const [desc, setDesc]         = useState(item.description ?? '')
   const [start, setStart]       = useState(item.start_date ?? '')
   const [end, setEnd]           = useState(item.end_date ?? '')
   const [priority, setPriority] = useState<Priority>(item.priority)
   const [status, setStatus]     = useState<Status>(item.status)
 
   useEffect(() => {
-    setName(item.name); setDesc(item.description ?? '')
+    setName(item.name)
     setStart(item.start_date ?? ''); setEnd(item.end_date ?? '')
     setPriority(item.priority); setStatus(item.status)
   }, [item.id])
 
-  const save = () => onSave({ name, description: desc, start_date: start, end_date: end, priority, status })
+  const save = () => onSave({ name, start_date: start, end_date: end, priority, status })
   const priorities: Priority[] = ['critical', 'high', 'medium', 'low']
   const statuses:   Status[]   = ['not_started', 'in_progress', 'done', 'blocked']
   const PRIORITY_LABELS: Record<Priority, string> = { critical: 'حرج', high: 'عالي', medium: 'متوسط', low: 'منخفض' }
@@ -685,12 +684,6 @@ function SidePanel({ item, onSave, onDelete, onClose, onAddChild }: {
             onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
         </Field></Section>
 
-        <Section><Field label="الوصف">
-          <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} placeholder="وصف تفصيلي (اختياري)"
-            style={{ ...inputStyle, resize: 'none', lineHeight: '1.6' } as React.CSSProperties}
-            onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
-        </Field></Section>
-
         <Section><Field label="المدة الزمنية">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -706,37 +699,20 @@ function SidePanel({ item, onSave, onDelete, onClose, onAddChild }: {
           </div>
         </Field></Section>
 
-        <Section><Field label="الأولوية">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            {priorities.map(p => (
-              <button key={p} onClick={() => setPriority(p)} style={{
-                padding: '8px 12px', borderRadius: '10px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '6px',
-                background: priority === p ? `${PRIORITY_COLORS[p]}12` : '#f9fafb',
-                color: priority === p ? PRIORITY_COLORS[p] : '#9ca3af',
-                border: priority === p ? `1.5px solid ${PRIORITY_COLORS[p]}50` : '1.5px solid transparent',
-              }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: PRIORITY_COLORS[p], flexShrink: 0 }} />
-                {PRIORITY_LABELS[p]}
-              </button>
-            ))}
+        <Section>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="الأولوية">
+              <select value={priority} onChange={e => setPriority(e.target.value as Priority)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                {priorities.map(p => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
+              </select>
+            </Field>
+            <Field label="الحالة">
+              <select value={status} onChange={e => setStatus(e.target.value as Status)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                {statuses.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+              </select>
+            </Field>
           </div>
-        </Field></Section>
-
-        <Section><Field label="الحالة">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {statuses.map(s => (
-              <button key={s} onClick={() => setStatus(s)} style={{
-                padding: '9px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: '500',
-                textAlign: 'right', cursor: 'pointer', border: 'none',
-                background: status === s ? '#5b6bff' : '#f9fafb',
-                color: status === s ? '#fff' : '#6b7280',
-              }}>
-                {STATUS_LABELS[s]}
-              </button>
-            ))}
-          </div>
-        </Field></Section>
+        </Section>
 
         {onAddChild && (
           <Section>
