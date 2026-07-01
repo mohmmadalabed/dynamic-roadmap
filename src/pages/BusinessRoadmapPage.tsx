@@ -163,6 +163,14 @@ export default function BusinessRoadmapPage() {
     setPhases(prev => prev.map(p => p.id === activePhaseId ? { ...p, name: value.trim() } : p))
   }
 
+  const updateProjectName = async (value: string) => {
+    if (!id || !value.trim() || !project) return
+    const name = value.trim()
+    if (name === project.name) return
+    await supabase.from('projects').update({ name }).eq('id', id)
+    setProject(prev => prev ? { ...prev, name } : prev)
+  }
+
   const addPhase = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!id || !phaseForm.name.trim()) return
@@ -221,7 +229,21 @@ export default function BusinessRoadmapPage() {
             المشاريع
           </button>
           <span style={{ color: '#d1d5db' }}>/</span>
-          <span style={{ fontWeight: '700' }}>{project?.name}</span>
+          {project && (
+            <input
+              value={project.name}
+              onChange={e => setProject(prev => prev ? { ...prev, name: e.target.value } : prev)}
+              onBlur={e => { updateProjectName(e.target.value); e.target.style.borderBottomColor = 'transparent' }}
+              onFocus={e => (e.target.style.borderBottomColor = '#534AB7')}
+              style={{
+                fontWeight: '700', fontSize: '15px', color: '#111827',
+                border: 'none', borderBottom: '1.5px solid transparent',
+                background: 'transparent', outline: 'none',
+                padding: '2px 0', fontFamily: 'inherit',
+                width: `${Math.max(project.name.length, 4)}ch`,
+              }}
+            />
+          )}
           <span style={{
             background: '#EEEDFE', color: '#534AB7',
             fontSize: '11px', fontWeight: '600',
