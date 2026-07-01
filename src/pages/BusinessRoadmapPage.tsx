@@ -58,6 +58,9 @@ export default function BusinessRoadmapPage() {
   const [phaseForm,      setPhaseForm]      = useState({ name: '', start: '', end: '' })
   const [savingPhase,    setSavingPhase]    = useState(false)
 
+  // PDF export
+  const [exporting, setExporting] = useState(false)
+
   // ── Load data ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -102,6 +105,11 @@ export default function BusinessRoadmapPage() {
   const sectionItems = (dept: DepartmentType, sec: SectionType): BusinessOKRItem[] =>
     items
       .filter(i => i.phase_id === activePhaseId && i.department === dept && i.section_type === sec)
+      .sort((a, b) => a.order_index - b.order_index)
+
+  const itemsForPhase = (phaseId: string, dept: DepartmentType, sec: SectionType): BusinessOKRItem[] =>
+    items
+      .filter(i => i.phase_id === phaseId && i.department === dept && i.section_type === sec)
       .sort((a, b) => a.order_index - b.order_index)
 
   // ── Handlers ────────────────────────────────────────────────────────────────
@@ -197,6 +205,182 @@ export default function BusinessRoadmapPage() {
     setSavingPhase(false)
   }
 
+  // ── PDF Export (all phases, multi-page) ────────────────────────────────────
+  const exportPDF = async () => {
+    if (exporting || phases.length === 0) return
+    setExporting(true)
+    try {
+      const { default: jsPDF } = await import('jspdf')
+
+      const PAGE_W    = 1000
+      const pW = 297, pH = 210, mg = 6                 // A4 landscape, mm
+      const printW    = pW - mg * 2
+      const printH    = pH - mg * 2
+      const ratio     = printW / PAGE_W                // mm per design-px
+      const availH    = Math.floor(printH / ratio)
+      const SCALE     = 2
+
+      const COL_W       = PAGE_W / 3
+      const TITLE_H     = 64
+      const DEPT_H      = 32
+      const SEC_LABEL_H = 22
+      const LINE_H      = 15
+      const ITEM_GAP    = 4
+      const CELL_PAD    = 10
+      const MIN_ROW_H   = 40
+      const FOOTER_H    = 20
+
+      const measureCv = document.createElement('canvas')
+      const mctx = measureCv.getContext('2d')!
+      mctx.font = '11px sans-serif'
+
+      const wrapText = (text: string, maxWidth: number): string[] => {
+        const words = text.split(' ')
+        const lines: string[] = []
+        let cur = ''
+        for (const w of words) {
+          const test = cur ? `${cur} ${w}` : w
+          if (mctx.measureText(test).width > maxWidth && cur) { lines.push(cur); cur = w }
+          else cur = test
+        }
+        if (cur) lines.push(cur)
+        return lines.length ? lines : ['']
+      }
+
+      const cellInnerW = COL_W - CELL_PAD * 2 - 14
+
+      type PreparedItem = { lines: string[] }
+      type PreparedSection = { sec: typeof SECS[number]; cells: PreparedItem[][]; rowH: number }
+      type PreparedPhase = { phase: BusinessPhase; sections: PreparedSection[] }
+
+      const preparedPhases: PreparedPhase[] = phases.map(phase => {
+        const sections: PreparedSection[] = SECS.map(sec => {
+          const cells = DEPTS.map(dept =>
+            itemsForPhase(phase.id, dept.k, sec.k).map(it => ({ lines: wrapText(it.content, cellInnerW) }))
+          )
+          const cellHeights = cells.map(cellItems =>
+            cellItems.reduce((sum, it) => sum + it.lines.length * LINE_H + ITEM_GAP, 0)
+          )
+          const rowH = Math.max(MIN_ROW_H, SEC_LABEL_H + Math.max(0, ...cellHeights) + CELL_PAD)
+          return { sec, cells, rowH }
+        })
+        return { phase, sections }
+      })
+
+      // Paginate: chunk each phase's section rows across pages that fit availH
+      type PageSpec = { phase: BusinessPhase; sections: PreparedSection[]; isFirstOfPhase: boolean }
+      const pages: PageSpec[] = []
+      preparedPhases.forEach(pp => {
+        let current: PreparedSection[] = []
+        let usedH = 0
+        let isFirst = true
+        const flush = () => {
+          if (current.length === 0) return
+          pages.push({ phase: pp.phase, sections: current, isFirstOfPhase: isFirst })
+          current = []; usedH = 0; isFirst = false
+        }
+        pp.sections.forEach(s => {
+          const overhead = (isFirst ? TITLE_H : 0) + DEPT_H + FOOTER_H
+          const avail = availH - overhead
+          if (current.length > 0 && usedH + s.rowH > avail) flush()
+          current.push(s); usedH += s.rowH
+        })
+        flush()
+      })
+
+      const hexToRgb = (hex: string) => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) })
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+
+      pages.forEach((page, pageIdx) => {
+        const topH     = page.isFirstOfPhase ? TITLE_H : 0
+        const contentH = page.sections.reduce((s, sec) => s + sec.rowH, 0)
+        const pageH    = topH + DEPT_H + contentH + FOOTER_H
+
+        const cv = document.createElement('canvas')
+        cv.width = PAGE_W * SCALE; cv.height = pageH * SCALE
+        const ctx = cv.getContext('2d')!; ctx.scale(SCALE, SCALE)
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, PAGE_W, pageH)
+
+        let y = 0
+        if (page.isFirstOfPhase) {
+          const grad = ctx.createLinearGradient(0, 0, PAGE_W, 0)
+          grad.addColorStop(0, '#534AB7'); grad.addColorStop(1, '#7c3aed')
+          ctx.fillStyle = grad; ctx.fillRect(0, 0, PAGE_W, TITLE_H)
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'right'
+          ctx.fillText(page.phase.name, PAGE_W - 16, 28)
+          ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '12px sans-serif'
+          ctx.fillText(project?.name ?? 'خارطة البزنز', PAGE_W - 16, 46)
+          const dur = calcDuration(page.phase.start_date, page.phase.end_date)
+          const dateStr = [page.phase.start_date, page.phase.end_date].filter(Boolean).join('  →  ')
+          ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.textAlign = 'left'; ctx.font = '12px sans-serif'
+          ctx.fillText(dateStr || 'بدون تواريخ محددة', 16, 26)
+          if (dur) { ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '11px sans-serif'; ctx.fillText(`المدة: ${dur}`, 16, 44) }
+          y = TITLE_H
+        }
+
+        // Department headers
+        DEPTS.forEach((dept, di) => {
+          ctx.fillStyle = dept.hbg; ctx.fillRect(di * COL_W, y, COL_W, DEPT_H)
+          ctx.fillStyle = dept.htc; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'
+          ctx.fillText(dept.label, di * COL_W + COL_W / 2, y + DEPT_H / 2 + 4)
+        })
+        ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1
+        for (let ci = 1; ci < 3; ci++) { ctx.beginPath(); ctx.moveTo(ci * COL_W, y); ctx.lineTo(ci * COL_W, y + DEPT_H); ctx.stroke() }
+        y += DEPT_H
+
+        page.sections.forEach(section => {
+          const rowTop = y
+          ctx.fillStyle = '#fafafa'; ctx.fillRect(0, rowTop, PAGE_W, section.rowH)
+          ctx.fillStyle = '#f0f0f5'; ctx.fillRect(0, rowTop, PAGE_W, SEC_LABEL_H)
+          ctx.fillStyle = '#374151'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right'
+          ctx.fillText(section.sec.label, PAGE_W - 10, rowTop + 15)
+
+          DEPTS.forEach((dept, di) => {
+            const cellX = di * COL_W
+            let cy = rowTop + SEC_LABEL_H + 12
+            const cellItems = section.cells[di]
+            if (cellItems.length === 0) {
+              ctx.fillStyle = '#c4c9d4'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center'
+              ctx.fillText('—', cellX + COL_W / 2, cy)
+            } else {
+              cellItems.forEach(it => {
+                const rc = hexToRgb(dept.ic)
+                ctx.fillStyle = `rgb(${rc.r},${rc.g},${rc.b})`
+                ctx.beginPath(); ctx.arc(cellX + COL_W - CELL_PAD - 4, cy - 4, 2.5, 0, Math.PI * 2); ctx.fill()
+                ctx.fillStyle = '#374151'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right'
+                it.lines.forEach((line, li) => ctx.fillText(line, cellX + COL_W - CELL_PAD - 12, cy + li * LINE_H))
+                cy += it.lines.length * LINE_H + ITEM_GAP
+              })
+            }
+          })
+
+          ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1
+          for (let ci = 1; ci < 3; ci++) { ctx.beginPath(); ctx.moveTo(ci * COL_W, rowTop); ctx.lineTo(ci * COL_W, rowTop + section.rowH); ctx.stroke() }
+          ctx.beginPath(); ctx.moveTo(0, rowTop + section.rowH); ctx.lineTo(PAGE_W, rowTop + section.rowH); ctx.stroke()
+
+          y += section.rowH
+        })
+
+        ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1
+        ctx.strokeRect(0.5, topH + 0.5, PAGE_W - 1, DEPT_H + contentH - 1)
+
+        // Footer: page number + credit line
+        const footerY = pageH - FOOTER_H / 2
+        ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left'
+        ctx.fillText(`${pageIdx + 1} / ${pages.length}`, 8, footerY + 3)
+        ctx.fillStyle = '#c4c9d4'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right'
+        ctx.fillText('تم التطوير بواسطة محمد العابد  |  malabed.com', PAGE_W - 8, footerY + 3)
+
+        if (pageIdx > 0) pdf.addPage()
+        pdf.addImage(cv.toDataURL('image/png', 1.0), 'PNG', mg, mg, printW, pageH * ratio)
+      })
+
+      pdf.save(`business-roadmap-${project?.name ?? 'export'}.pdf`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   // ── Loading ──────────────────────────────────────────────────────────────────
 
   if (loading) return (
@@ -254,7 +438,20 @@ export default function BusinessRoadmapPage() {
             خارطة البزنز
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            onClick={exportPDF}
+            disabled={exporting || phases.length === 0}
+            style={{
+              background: exporting ? '#f3f4f6' : '#fff',
+              color: exporting || phases.length === 0 ? '#9ca3af' : '#374151',
+              border: '1px solid #e5e7eb', borderRadius: '8px', padding: '7px 14px',
+              fontSize: '13px', fontWeight: '600',
+              cursor: exporting || phases.length === 0 ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+            {exporting ? '⏳ جارٍ التصدير...' : '⬇ تصدير PDF'}
+          </button>
           <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: project?.color ?? '#5b6bff' }} />
           <span style={{ fontSize: '12px', color: '#9ca3af' }}>{phases.length} مراحل</span>
         </div>

@@ -231,6 +231,10 @@ export default function Dashboard({ isAdmin = false, userId = '', userEmail = ''
         )}
       </main>
 
+      <p style={{ textAlign: 'center', fontSize: '11px', color: '#c4c9d4', margin: '8px 0 24px' }}>
+        تم التطوير بواسطة محمد العابد &nbsp;|&nbsp; malabed.com
+      </p>
+
       {/* ── New Project Modal ── */}
       {showModal && (
         <div

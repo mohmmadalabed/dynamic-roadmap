@@ -93,8 +93,10 @@ export default function LoginPage() {
     <div style={{
       minHeight: '100vh',
       display: 'flex',
+      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: '18px',
       background: 'linear-gradient(145deg, #eef1ff 0%, #fafbff 50%, #f3eeff 100%)',
       padding: '24px',
     }}>
@@ -249,6 +251,10 @@ export default function LoginPage() {
           </form>
         )}
       </div>
+
+      <p style={{ fontSize: '11px', color: '#b0b4c4', margin: 0, textAlign: 'center' }}>
+        تم التطوير بواسطة محمد العابد &nbsp;|&nbsp; malabed.com
+      </p>
     </div>
   )
 }
