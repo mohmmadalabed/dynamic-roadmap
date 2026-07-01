@@ -14,14 +14,6 @@ const DEPTH_COLORS = ['#0f2d6e', '#1e3a8a', '#1d4ed8', '#2563eb', '#3b82f6']
 const DONE_COLOR   = '#15803d'
 const depthDots    = (d: number) => '•'.repeat(d + 1)
 const depthColor   = (d: number) => DEPTH_COLORS[Math.min(d, DEPTH_COLORS.length - 1)]
-// TYPE_COLORS kept only for SVG connectors (uses depth color via depthColor)
-const TYPE_COLORS: Record<ItemType, { bg: string; text: string }> = {
-  goal:    { bg: DEPTH_COLORS[0], text: '#fff' },
-  feature: { bg: DEPTH_COLORS[1], text: '#fff' },
-  story:   { bg: DEPTH_COLORS[2], text: '#fff' },
-  task:    { bg: DEPTH_COLORS[3], text: '#fff' },
-  subtask: { bg: DEPTH_COLORS[4], text: '#fff' },
-}
 const STATUS_LABELS: Record<Status, string> = {
   not_started: 'لم يبدأ', in_progress: 'جارٍ', done: 'مكتمل', blocked: 'معلّق'
 }
