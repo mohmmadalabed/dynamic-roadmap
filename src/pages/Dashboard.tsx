@@ -2,15 +2,23 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Project, ProjectType } from '../types'
+import PasswordInput from '../components/PasswordInput'
 
 const PROJECT_COLORS = ['#5b6bff','#16a34a','#f97316','#7c3aed','#ef4444','#0891b2']
 
-export default function Dashboard({ isAdmin = false, userId = '' }: { isAdmin?: boolean; userId?: string }) {
+export default function Dashboard({ isAdmin = false, userId = '', userEmail = '' }: { isAdmin?: boolean; userId?: string; userEmail?: string }) {
   const navigate = useNavigate()
   const [projects, setProjects]   = useState<Project[]>([])
   const [loading, setLoading]     = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm]           = useState({ name: '', description: '', color: PROJECT_COLORS[0], type: 'product' as ProjectType })
+
+  // Change password
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [pwForm, setPwForm]         = useState({ password: '', confirm: '' })
+  const [pwError, setPwError]       = useState('')
+  const [pwSuccess, setPwSuccess]   = useState(false)
+  const [savingPw, setSavingPw]     = useState(false)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
@@ -66,6 +74,19 @@ export default function Dashboard({ isAdmin = false, userId = '' }: { isAdmin?: 
 
   const logout = () => supabase.auth.signOut()
 
+  const changePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPwError(''); setPwSuccess(false)
+    if (pwForm.password.length < 6) { setPwError('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return }
+    if (pwForm.password !== pwForm.confirm) { setPwError('كلمتا المرور غير متطابقتين'); return }
+    setSavingPw(true)
+    const { error } = await supabase.auth.updateUser({ password: pwForm.password })
+    setSavingPw(false)
+    if (error) { setPwError(error.message); return }
+    setPwSuccess(true)
+    setPwForm({ password: '', confirm: '' })
+  }
+
   // A user can manage a project if they own it or are admin
   const canManage = (p: Project) => isAdmin || p.owner_id === userId
 
@@ -93,6 +114,27 @@ export default function Dashboard({ isAdmin = false, userId = '' }: { isAdmin?: 
           <span style={{ fontWeight: '800', fontSize: '16px', letterSpacing: '-0.3px' }}>Dynamic Roadmap</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {userEmail && (
+            <span style={{
+              fontSize: '12px', color: '#6b7280',
+              background: '#f3f4f6', borderRadius: '20px',
+              padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
+              {userEmail}
+            </span>
+          )}
+          <button
+            onClick={() => { setShowPasswordModal(true); setPwError(''); setPwSuccess(false); setPwForm({ password: '', confirm: '' }) }}
+            title="تغيير كلمة المرور"
+            style={{
+              background: 'transparent', color: '#6b7280',
+              border: '1px solid #e5e7eb', borderRadius: '10px',
+              padding: '8px 16px', fontSize: '13px', fontWeight: '600',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+            🔒 كلمة المرور
+          </button>
           {isAdmin && (
             <button
               onClick={() => navigate('/users')}
@@ -425,6 +467,88 @@ export default function Dashboard({ isAdmin = false, userId = '' }: { isAdmin?: 
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Change Password Modal ── */}
+      {showPasswordModal && (
+        <div
+          onClick={() => setShowPasswordModal(false)}
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 50, padding: '24px',
+          }}>
+          <form
+            onSubmit={changePassword}
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: '20px',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+              width: '100%', maxWidth: '400px',
+              padding: '32px',
+              display: 'flex', flexDirection: 'column', gap: '20px',
+            }}>
+            <h3 style={{ fontSize: '17px', fontWeight: '800', margin: 0 }}>تغيير كلمة المرور</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>كلمة المرور الجديدة</label>
+              <PasswordInput
+                required autoFocus
+                value={pwForm.password} onChange={e => setPwForm(f => ({ ...f, password: e.target.value }))}
+                placeholder="6 أحرف على الأقل"
+                style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', width: '100%', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                onFocus={e => (e.target.style.borderColor = '#5b6bff')}
+                onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>تأكيد كلمة المرور</label>
+              <PasswordInput
+                required
+                value={pwForm.confirm} onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))}
+                placeholder="••••••••"
+                style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', width: '100%', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                onFocus={e => (e.target.style.borderColor = '#5b6bff')}
+                onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
+              />
+            </div>
+
+            {pwError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#dc2626' }}>
+                {pwError}
+              </div>
+            )}
+            {pwSuccess && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#16a34a' }}>
+                تم تغيير كلمة المرور بنجاح
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '4px' }}>
+              <button
+                type="submit" disabled={savingPw}
+                style={{
+                  flex: 1, padding: '13px',
+                  borderRadius: '12px', background: savingPw ? '#a5b4fc' : '#5b6bff',
+                  color: '#fff', fontWeight: '700', fontSize: '14px',
+                  border: 'none', cursor: savingPw ? 'not-allowed' : 'pointer',
+                }}>
+                {savingPw ? 'جارٍ الحفظ...' : 'حفظ'}
+              </button>
+              <button
+                type="button" onClick={() => setShowPasswordModal(false)}
+                style={{
+                  padding: '13px 20px', borderRadius: '12px',
+                  border: '1.5px solid #e5e7eb', background: '#fff',
+                  fontSize: '14px', color: '#6b7280', cursor: 'pointer',
+                }}>
+                إغلاق
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

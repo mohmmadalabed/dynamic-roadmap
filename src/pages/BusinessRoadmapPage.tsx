@@ -11,13 +11,13 @@ const DEPTS: { k: DepartmentType; label: string; hbg: string; htc: string; ic: s
   { k: 'sales',     label: 'المبيعات والدعم',   hbg: '#E1F5EE', htc: '#085041', ic: '#0F6E56' },
 ]
 
-const SECS: { k: SectionType; label: string }[] = [
-  { k: 'obj',  label: 'الأهداف' },
-  { k: 'kr',   label: 'النتائج المفتاحية' },
-  { k: 'act',  label: 'الأنشطة' },
-  { k: 'del',  label: 'المخرجات / KPI' },
-  { k: 'res',  label: 'الموارد' },
-  { k: 'cost', label: 'التكلفة' },
+const SECS: { k: SectionType; label: string; addLabel: string; placeholder: string }[] = [
+  { k: 'obj',  label: 'الأهداف',              addLabel: 'إضافة هدف',   placeholder: 'اكتب الهدف هنا...' },
+  { k: 'kr',   label: 'النتائج المفتاحية',    addLabel: 'إضافة نتيجة', placeholder: 'اكتب النتيجة هنا...' },
+  { k: 'act',  label: 'الأنشطة',              addLabel: 'إضافة نشاط',  placeholder: 'اكتب النشاط هنا...' },
+  { k: 'del',  label: 'المخرجات / KPI',       addLabel: 'إضافة مخرج',  placeholder: 'اكتب المخرج هنا...' },
+  { k: 'res',  label: 'الموارد',               addLabel: 'إضافة مورد',  placeholder: 'اكتب المورد هنا...' },
+  { k: 'cost', label: 'التكلفة',               addLabel: 'إضافة تكلفة', placeholder: 'اكتب بند التكلفة هنا...' },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -537,7 +537,7 @@ export default function BusinessRoadmapPage() {
                                 if (e.key === 'Enter')  { e.preventDefault(); confirmAdd() }
                                 if (e.key === 'Escape') { cancelAdd() }
                               }}
-                              placeholder="اكتب النقطة هنا..."
+                              placeholder={sec.placeholder}
                               style={{
                                 flex: 1, fontSize: '12px',
                                 border: `1.5px solid ${dept.ic}`,
@@ -571,7 +571,7 @@ export default function BusinessRoadmapPage() {
                             }}
                             onMouseEnter={e => (e.currentTarget.style.opacity = '0.75')}
                             onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
-                            + إضافة نقطة
+                            + {sec.addLabel}
                           </button>
                         )}
                       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import PasswordInput from '../components/PasswordInput'
 
 interface Profile {
   id: string
@@ -151,8 +152,8 @@ export default function UsersPage() {
                 </div>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: '700', color: '#6b7280', display: 'block', marginBottom: '6px' }}>كلمة المرور</label>
-                  <input
-                    type="password" required minLength={6} placeholder="6 أحرف على الأقل"
+                  <PasswordInput
+                    required minLength={6} placeholder="6 أحرف على الأقل"
                     value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                     style={inputStyle}
                     onFocus={e => (e.target.style.borderColor = '#5b6bff')}
