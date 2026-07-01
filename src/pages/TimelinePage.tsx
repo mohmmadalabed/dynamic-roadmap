@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Project, RoadmapItem, Priority, Status, ItemType } from '../types'
@@ -91,10 +91,13 @@ export default function TimelinePage() {
 
   const [project, setProject]         = useState<Project | null>(null)
   const [items, setItems]             = useState<RoadmapItem[]>([])
-  const itemsRef                      = useRef<RoadmapItem[]>([])
-  const [tree, setTree]               = useState<RoadmapItem[]>([])
-  const [flat, setFlat]               = useState<Array<{ item: RoadmapItem; depth: number }>>([])
   const [collapsed, setCollapsed]     = useState<Set<string>>(new Set())
+
+  // O(1) id → item lookup — replaces repeated items.find() calls
+  const itemsById = useMemo(() => new Map(items.map(i => [i.id, i])), [items])
+
+  // Single memo replaces: tree state + flat state + 3 useEffects (was 3 renders per items change → 1)
+  const flat = useMemo(() => flattenTree(buildTree(items), 0, collapsed), [items, collapsed])
   const [selected, setSelected]       = useState<RoadmapItem | null>(null)
   const [hoveredId, setHoveredId]     = useState<string | null>(null)
   const [editingId, setEditingId]     = useState<string | null>(null)
@@ -115,6 +118,20 @@ export default function TimelinePage() {
   const totalGanttW = TOTAL_MONTHS * MONTH_W
   const todayX      = dateToX(today.toISOString().split('T')[0], pxPerDay)
 
+  // Memoize static headers — 49 months + 196 day-ticks never change
+  const monthHeaderData = useMemo(() =>
+    Array.from({ length: TOTAL_MONTHS }, (_, i) => {
+      const actualI = TOTAL_MONTHS - 1 - i
+      const d = new Date(START_DATE); d.setMonth(d.getMonth() + actualI)
+      const isCurrent = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()
+      return { key: i, label: monthLabel(d), isCurrent }
+    }), [])
+
+  const subHeaderData = useMemo(() =>
+    Array.from({ length: TOTAL_MONTHS }, (_, mi) =>
+      [22, 15, 8, 1].map((day, wi) => ({ key: `${TOTAL_MONTHS - 1 - mi}-${wi}`, day, wi, mi }))
+    ).flat(), [])
+
   // Scroll to show current month in viewport (RTL: current month is right-of-center)
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -126,9 +143,6 @@ export default function TimelinePage() {
     return () => clearTimeout(timer)
   }, [totalGanttW, todayX])
 
-  // Keep ref in sync for drag closures
-  useEffect(() => { itemsRef.current = items }, [items])
-
   const reload = useCallback(async () => {
     if (!id) return
     const [{ data: proj }, { data: its }] = await Promise.all([
@@ -138,15 +152,6 @@ export default function TimelinePage() {
     if (proj) setProject(proj)
     if (its) setItems(its)
   }, [id])
-
-  // Rebuild tree whenever items change
-  useEffect(() => {
-    const t = buildTree(items)
-    setTree(t)
-  }, [items])
-
-  // Rebuild flat list whenever tree or collapsed changes
-  useEffect(() => { setFlat(flattenTree(tree, 0, collapsed)) }, [collapsed, tree])
 
   useEffect(() => { reload() }, [id])
 
@@ -278,211 +283,226 @@ export default function TimelinePage() {
     }
   }
 
-  // ── PDF Export ────────────────────────────────────────────────────────────
+  // ── PDF Export (multi-page) ───────────────────────────────────────────────
   const exportPDF = async () => {
     if (exporting || flat.length === 0) return
     setExporting(true)
     try {
       const { default: jsPDF } = await import('jspdf')
-      const SCALE    = 3; const PNL_W = 240; const TITLE_H = 56
-      const HDR_H    = 52; const ROW_H_PDF = 40; const BAR_H = 26
-      const BAR_Y    = (ROW_H_PDF - BAR_H) / 2; const HANDLE_W = 9
+      const SCALE = 3; const PNL_W = 240; const TITLE_H = 56
+      const HDR_H = 52; const ROW_H_PDF = 40; const BAR_H = 26
+      const BAR_Y = (ROW_H_PDF - BAR_H) / 2; const HANDLE_W = 9
       const WEEK_W_PDF = 62
-      const COLS     = PDF_WEEKS; const COL_W = WEEK_W_PDF; const GANTT_W = COLS * COL_W
-      const pdfPpd   = WEEK_W_PDF / 7
-      // PDF uses current-month start as reference (independent of app START_DATE)
+      const COLS = PDF_WEEKS; const COL_W = WEEK_W_PDF; const GANTT_W = COLS * COL_W
+      const pdfPpd = WEEK_W_PDF / 7
+      const LEGEND_H = 54
+      const totalW = GANTT_W + PNL_W
+
       const pdfDateToX = (d: string | null | undefined) => {
         if (!d) return 0
         const days = (new Date(d).getTime() - PDF_START.getTime()) / 86400000
         return Math.max(0, days * pdfPpd)
       }
-      const LEGEND_H = 54
-      const totalW   = GANTT_W + PNL_W
-      const totalH   = TITLE_H + HDR_H + flat.length * ROW_H_PDF + LEGEND_H
-
-      const cv = document.createElement('canvas')
-      cv.width = totalW * SCALE; cv.height = totalH * SCALE
-      const ctx = cv.getContext('2d')!; ctx.scale(SCALE, SCALE)
-
       const hexToRgb = (hex: string) => ({
         r: parseInt(hex.slice(1,3),16), g: parseInt(hex.slice(3,5),16), b: parseInt(hex.slice(5,7),16)
       })
 
-      // Background
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, totalW, totalH)
+      // A4 landscape: fit to width, split rows across pages
+      const pW = 297; const pH = 210; const mg = 6
+      const printW = pW - mg * 2          // 285 mm
+      const printH = pH - mg * 2          // 198 mm
+      const ratio  = printW / totalW      // mm per canvas-px
+      const availH_px = Math.floor(printH / ratio)
 
-      // Title
-      const grad = ctx.createLinearGradient(0, 0, totalW, 0)
-      grad.addColorStop(0, '#5b6bff'); grad.addColorStop(1, '#7c3aed')
-      ctx.fillStyle = grad; ctx.fillRect(0, 0, totalW, TITLE_H)
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'right'
-      ctx.fillText(project?.name ?? 'خارطة الطريق', totalW - 16, 28)
-      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '12px sans-serif'
-      ctx.fillText('خارطة الطريق التفاعلية', totalW - 16, 46)
-      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.textAlign = 'left'
-      ctx.fillText(new Date().toLocaleDateString('ar-SA', { year:'numeric', month:'long', day:'numeric' }), 16, 26)
-      ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '11px sans-serif'
-      ctx.fillText(`${flat.length} بند`, 16, 44)
+      // Rows that fit per page (title only on p1, legend only on last)
+      const ROWS_P1    = Math.max(1, Math.floor((availH_px - TITLE_H - HDR_H - LEGEND_H) / ROW_H_PDF))
+      const ROWS_OTHER = Math.max(1, Math.floor((availH_px - HDR_H - LEGEND_H) / ROW_H_PDF))
 
-      // Month headers
-      ctx.fillStyle = '#f5f6fa'; ctx.fillRect(0, TITLE_H, GANTT_W, 30)
-      const pdfMonths = Array.from({ length: 4 }, (_, i) => {
-        const d = new Date(PDF_START); d.setMonth(d.getMonth() + i); return monthLabel(d)
-      })
-      const mW = GANTT_W / 4
-      pdfMonths.forEach((m, i) => {
-        if (i > 0) { ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(i*mW, TITLE_H); ctx.lineTo(i*mW, TITLE_H+30); ctx.stroke() }
-        ctx.fillStyle = '#6b7280'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'
-        ctx.fillText(m, i*mW + mW/2, TITLE_H + 21)
-      })
-
-      // Week headers
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, TITLE_H+30, GANTT_W, 22)
-      Array.from({ length: COLS }, (_, i) => {
-        ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(i*COL_W, TITLE_H+30); ctx.lineTo(i*COL_W, TITLE_H+HDR_H); ctx.stroke()
-        ctx.fillStyle = '#9ca3af'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'
-        ctx.fillText(`${i+1}`, i*COL_W + COL_W/2, TITLE_H + 45)
-      })
-
-      // Tree panel header
-      ctx.fillStyle = '#f9fafb'; ctx.fillRect(GANTT_W, TITLE_H, PNL_W, HDR_H)
-      ctx.fillStyle = '#374151'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'right'
-      ctx.fillText('البنود', totalW - 14, TITLE_H + 34)
-
-      // Dividers
-      ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1.5
-      ctx.beginPath(); ctx.moveTo(GANTT_W, TITLE_H); ctx.lineTo(GANTT_W, totalH); ctx.stroke()
-      ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, TITLE_H+HDR_H); ctx.lineTo(totalW, TITLE_H+HDR_H); ctx.stroke()
-
-      // Today line
-      const tPx = pdfDateToX(today.toISOString().split('T')[0])
-      ctx.strokeStyle = '#5b6bff'; ctx.globalAlpha = 0.5; ctx.lineWidth = 2; ctx.setLineDash([4,3])
-      ctx.beginPath(); ctx.moveTo(tPx, TITLE_H+HDR_H); ctx.lineTo(tPx, totalH); ctx.stroke()
-      ctx.setLineDash([]); ctx.globalAlpha = 1
-
-      // Rows
-      flat.forEach(({ item, depth }, idx) => {
-        const cur = items.find(i => i.id === item.id) ?? item
-        const y = TITLE_H + HDR_H + idx * ROW_H_PDF
-        ctx.fillStyle = idx % 2 === 0 ? '#fff' : '#fafafa'; ctx.fillRect(0, y, totalW, ROW_H_PDF)
-        ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, y+ROW_H_PDF); ctx.lineTo(totalW, y+ROW_H_PDF); ctx.stroke()
-        Array.from({ length: COLS }, (_, i) => {
-          ctx.strokeStyle = '#e0e0e8'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(i*COL_W, y); ctx.lineTo(i*COL_W, y+ROW_H_PDF); ctx.stroke()
-        })
-        // Bar
-        const bL = pdfDateToX(cur.start_date)
-        const bW = (() => { const s = cur.start_date, e = cur.end_date; if (!s || !e) return 28*pdfPpd; const d = (new Date(e).getTime()-new Date(s).getTime())/86400000; return Math.max(7*pdfPpd,d*pdfPpd) })()
-        if (bW > 0 && bL < GANTT_W) {
-          const isDone = cur.status === 'done'
-          const tc = hexToRgb(isDone ? DONE_COLOR : depthColor(depth))
-          const pc = hexToRgb(PRIORITY_COLORS[cur.priority])
-          const cW = Math.min(bW, GANTT_W - bL)
-          ctx.shadowColor = 'rgba(0,0,0,0.1)'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1
-          ctx.fillStyle = `rgb(${tc.r},${tc.g},${tc.b})`
-          ctx.beginPath(); ctx.roundRect(bL, y+BAR_Y, cW, BAR_H, 5); ctx.fill()
-          ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
-          ctx.fillStyle = `rgb(${pc.r},${pc.g},${pc.b})`
-          ctx.beginPath(); ctx.roundRect(bL, y+BAR_Y, HANDLE_W, BAR_H, [5,0,0,5]); ctx.fill()
-          if (cW >= HANDLE_W*2) { ctx.beginPath(); ctx.roundRect(bL+cW-HANDLE_W, y+BAR_Y, HANDLE_W, BAR_H, [0,5,5,0]); ctx.fill() }
-          if (cW > HANDLE_W*2+20) {
-            // Bar label: priority(right) → title → dots(left)
-            const textY     = y + ROW_H_PDF / 2 + 4
-            const rightEdge = bL + cW - HANDLE_W - 5
-            const leftEdge  = bL + HANDLE_W + 5
-            // priority icon (rightmost)
-            const pIcon = PRIORITY_ICONS[cur.priority]
-            ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'right'
-            ctx.fillText(pIcon, rightEdge, textY)
-            const iconW = ctx.measureText(pIcon).width
-            // dots (leftmost)
-            const dots = '•'.repeat(depth + 1)
-            ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left'
-            ctx.fillText(dots, leftEdge, textY)
-            const dotsW = ctx.measureText(dots).width
-            // title (between)
-            const titleRight = rightEdge - iconW - 6
-            const titleLeft  = leftEdge + dotsW + 6
-            const availW = titleRight - titleLeft
-            if (availW > 16) {
-              ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right'
-              const maxC = Math.floor(availW / 6.5)
-              ctx.fillText(cur.name.length > maxC ? cur.name.slice(0, maxC) + '…' : cur.name, titleRight, textY)
-            }
-          }
-        }
-        // Tree label: priority icon + dots + name (RTL)
-        const treeY   = y + ROW_H_PDF / 2 + 5
-        const treeRight = totalW - 10 - depth * 10
-        const pIconC  = hexToRgb(PRIORITY_COLORS[cur.priority])
-        ctx.fillStyle = `rgb(${pIconC.r},${pIconC.g},${pIconC.b})`
-        ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'right'
-        ctx.fillText(PRIORITY_ICONS[cur.priority], treeRight, treeY)
-        const pIconW = ctx.measureText(PRIORITY_ICONS[cur.priority]).width
-        const dotsStr = '•'.repeat(depth + 1)
-        ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif'
-        ctx.fillText(dotsStr, treeRight - pIconW - 4, treeY)
-        const dotsW2 = ctx.measureText(dotsStr).width
-        ctx.fillStyle = depth === 0 ? '#111827' : '#374151'
-        ctx.font = depth === 0 ? 'bold 12px sans-serif' : '12px sans-serif'
-        const availTree = PNL_W - pIconW - dotsW2 - 28 - depth * 10
-        const maxCT = Math.floor(availTree / 6.5)
-        ctx.fillText(cur.name.length > maxCT ? cur.name.slice(0, maxCT) + '…' : cur.name, treeRight - pIconW - dotsW2 - 10, treeY)
-      })
-
-      // ── Legend ──────────────────────────────────────────────
-      const ly = TITLE_H + HDR_H + flat.length * ROW_H_PDF
-      const LY_MID = ly + LEGEND_H / 2
-      const CHIP = 11
-
-      ctx.fillStyle = '#f9fafb'; ctx.fillRect(0, ly, totalW, LEGEND_H)
-      ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1
-      ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(totalW, ly); ctx.stroke()
-      // vertical divider
-      ctx.beginPath(); ctx.moveTo(totalW / 2, ly + 10); ctx.lineTo(totalW / 2, ly + LEGEND_H - 10); ctx.stroke()
-
-      // ── Right half: depth gradient + done ──
-      ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right'
-      ctx.fillText('المستوى:', totalW - 10, LY_MID + 4)
-      let rx = totalW - 76
-      DEPTH_COLORS.forEach((col, di) => {
-        const rc = hexToRgb(col)
-        ctx.fillStyle = `rgb(${rc.r},${rc.g},${rc.b})`
-        ctx.beginPath(); ctx.roundRect(rx - CHIP, LY_MID - CHIP / 2, CHIP, CHIP, 3); ctx.fill()
-        ctx.fillStyle = '#374151'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'
-        ctx.fillText(`${'•'.repeat(di + 1)}`, rx - CHIP - 4, LY_MID + 4)
-        rx -= 42
-      })
-      // done chip
-      const doneRgb2 = hexToRgb(DONE_COLOR)
-      ctx.fillStyle = `rgb(${doneRgb2.r},${doneRgb2.g},${doneRgb2.b})`
-      ctx.beginPath(); ctx.roundRect(rx - CHIP, LY_MID - CHIP / 2, CHIP, CHIP, 3); ctx.fill()
-      ctx.fillStyle = '#374151'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right'
-      ctx.fillText('مكتمل', rx - CHIP - 4, LY_MID + 4)
-
-      // ── Left half: priority ──
-      const priorityEntries: [string, string, string][] = [
-        ['⬆⬆', 'حرج', '#ef4444'], ['⬆', 'عالي', '#f97316'],
-        ['◎', 'متوسط', '#3b82f6'], ['⬇', 'منخفض', '#22c55e'],
-      ]
-      ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'
-      ctx.fillText('الأولوية:', 10, LY_MID + 4)
-      let lxp = 76
-      priorityEntries.forEach(([icon, label, color]) => {
-        const rc = hexToRgb(color)
-        ctx.fillStyle = `rgb(${rc.r},${rc.g},${rc.b})`
-        ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'
-        ctx.fillText(icon, lxp, LY_MID + 4)
-        const iconW = ctx.measureText(icon).width
-        ctx.fillStyle = '#374151'; ctx.font = '11px sans-serif'
-        ctx.fillText(label, lxp + iconW + 4, LY_MID + 4)
-        const labelW = ctx.measureText(label).width
-        lxp += iconW + labelW + 18
-      })
+      // Split flat into page chunks
+      const chunks: Array<{ rows: typeof flat; startIdx: number }> = []
+      let fi = 0
+      while (fi < flat.length) {
+        const limit = chunks.length === 0 ? ROWS_P1 : ROWS_OTHER
+        chunks.push({ rows: flat.slice(fi, fi + limit), startIdx: fi })
+        fi += limit
+      }
 
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-      const pW = 297; const pH = 210; const mg = 6
-      const ratio = Math.min((pW-mg*2)/totalW, (pH-mg*2)/totalH)
-      pdf.addImage(cv.toDataURL('image/png', 1.0), 'PNG', mg+(pW-mg*2-totalW*ratio)/2, mg+(pH-mg*2-totalH*ratio)/2, totalW*ratio, totalH*ratio)
+
+      for (let pageIdx = 0; pageIdx < chunks.length; pageIdx++) {
+        const { rows: chunkRows, startIdx } = chunks[pageIdx]
+        const isFirst = pageIdx === 0
+        const isLast  = pageIdx === chunks.length - 1
+        const topH    = isFirst ? TITLE_H : 0
+        const botH    = isLast  ? LEGEND_H : 0
+        const pageH   = topH + HDR_H + chunkRows.length * ROW_H_PDF + botH
+
+        const cv  = document.createElement('canvas')
+        cv.width  = totalW * SCALE; cv.height = pageH * SCALE
+        const ctx = cv.getContext('2d')!; ctx.scale(SCALE, SCALE)
+
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, totalW, pageH)
+
+        // ── Title (first page) ──
+        if (isFirst) {
+          const grad = ctx.createLinearGradient(0, 0, totalW, 0)
+          grad.addColorStop(0, '#5b6bff'); grad.addColorStop(1, '#7c3aed')
+          ctx.fillStyle = grad; ctx.fillRect(0, 0, totalW, TITLE_H)
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'right'
+          ctx.fillText(project?.name ?? 'خارطة الطريق', totalW - 16, 28)
+          ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '12px sans-serif'
+          ctx.fillText('خارطة الطريق التفاعلية', totalW - 16, 46)
+          ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.textAlign = 'left'
+          ctx.fillText(new Date().toLocaleDateString('ar-SA', { year:'numeric', month:'long', day:'numeric' }), 16, 26)
+          ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '11px sans-serif'
+          ctx.fillText(`${flat.length} بند`, 16, 44)
+        }
+
+        // ── Header (every page) ──
+        const hdrY = topH
+        ctx.fillStyle = '#f5f6fa'; ctx.fillRect(0, hdrY, GANTT_W, 30)
+        const pdfMonths = Array.from({ length: 4 }, (_, mi) => {
+          const d = new Date(PDF_START); d.setMonth(d.getMonth() + mi); return monthLabel(d)
+        })
+        const mW = GANTT_W / 4
+        pdfMonths.forEach((m, mi) => {
+          if (mi > 0) { ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mi*mW, hdrY); ctx.lineTo(mi*mW, hdrY+30); ctx.stroke() }
+          ctx.fillStyle = '#6b7280'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'
+          ctx.fillText(m, mi*mW + mW/2, hdrY + 21)
+        })
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, hdrY+30, GANTT_W, 22)
+        Array.from({ length: COLS }, (_, ci) => {
+          ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(ci*COL_W, hdrY+30); ctx.lineTo(ci*COL_W, hdrY+HDR_H); ctx.stroke()
+          ctx.fillStyle = '#9ca3af'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'
+          ctx.fillText(`${ci+1}`, ci*COL_W + COL_W/2, hdrY + 45)
+        })
+        ctx.fillStyle = '#f9fafb'; ctx.fillRect(GANTT_W, hdrY, PNL_W, HDR_H)
+        ctx.fillStyle = '#374151'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'right'
+        ctx.fillText('البنود', totalW - 14, hdrY + 34)
+
+        ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1.5
+        ctx.beginPath(); ctx.moveTo(GANTT_W, hdrY); ctx.lineTo(GANTT_W, pageH); ctx.stroke()
+        ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, hdrY+HDR_H); ctx.lineTo(totalW, hdrY+HDR_H); ctx.stroke()
+
+        const rowsY = hdrY + HDR_H
+        // Today line
+        const tPx = pdfDateToX(today.toISOString().split('T')[0])
+        ctx.strokeStyle = '#5b6bff'; ctx.globalAlpha = 0.5; ctx.lineWidth = 2; ctx.setLineDash([4,3])
+        ctx.beginPath(); ctx.moveTo(tPx, rowsY); ctx.lineTo(tPx, rowsY + chunkRows.length * ROW_H_PDF); ctx.stroke()
+        ctx.setLineDash([]); ctx.globalAlpha = 1
+
+        // ── Rows ──
+        chunkRows.forEach(({ item, depth }, rowIdx) => {
+          const globalIdx = startIdx + rowIdx
+          const cur = itemsById.get(item.id) ?? item   // O(1)
+          const y   = rowsY + rowIdx * ROW_H_PDF
+          ctx.fillStyle = globalIdx % 2 === 0 ? '#fff' : '#fafafa'; ctx.fillRect(0, y, totalW, ROW_H_PDF)
+          ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, y+ROW_H_PDF); ctx.lineTo(totalW, y+ROW_H_PDF); ctx.stroke()
+          Array.from({ length: COLS }, (_, ci) => {
+            ctx.strokeStyle = '#e0e0e8'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(ci*COL_W, y); ctx.lineTo(ci*COL_W, y+ROW_H_PDF); ctx.stroke()
+          })
+          const bL = pdfDateToX(cur.start_date)
+          const bW = (() => { const s = cur.start_date, e = cur.end_date; if (!s || !e) return 28*pdfPpd; const d = (new Date(e).getTime()-new Date(s).getTime())/86400000; return Math.max(7*pdfPpd,d*pdfPpd) })()
+          if (bW > 0 && bL < GANTT_W) {
+            const isDone = cur.status === 'done'
+            const tc = hexToRgb(isDone ? DONE_COLOR : depthColor(depth))
+            const pc = hexToRgb(PRIORITY_COLORS[cur.priority])
+            const cW = Math.min(bW, GANTT_W - bL)
+            ctx.shadowColor = 'rgba(0,0,0,0.1)'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1
+            ctx.fillStyle = `rgb(${tc.r},${tc.g},${tc.b})`
+            ctx.beginPath(); ctx.roundRect(bL, y+BAR_Y, cW, BAR_H, 5); ctx.fill()
+            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
+            ctx.fillStyle = `rgb(${pc.r},${pc.g},${pc.b})`
+            ctx.beginPath(); ctx.roundRect(bL, y+BAR_Y, HANDLE_W, BAR_H, [5,0,0,5]); ctx.fill()
+            if (cW >= HANDLE_W*2) { ctx.beginPath(); ctx.roundRect(bL+cW-HANDLE_W, y+BAR_Y, HANDLE_W, BAR_H, [0,5,5,0]); ctx.fill() }
+            if (cW > HANDLE_W*2+20) {
+              const textY = y + ROW_H_PDF / 2 + 4
+              const rightEdge = bL + cW - HANDLE_W - 5; const leftEdge = bL + HANDLE_W + 5
+              const pIcon = PRIORITY_ICONS[cur.priority]
+              ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'right'
+              ctx.fillText(pIcon, rightEdge, textY)
+              const iconW = ctx.measureText(pIcon).width
+              const dots = '•'.repeat(depth + 1)
+              ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left'
+              ctx.fillText(dots, leftEdge, textY)
+              const dotsW = ctx.measureText(dots).width
+              const availW = (rightEdge - iconW - 6) - (leftEdge + dotsW + 6)
+              if (availW > 16) {
+                ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right'
+                const maxC = Math.floor(availW / 6.5)
+                ctx.fillText(cur.name.length > maxC ? cur.name.slice(0, maxC) + '…' : cur.name, rightEdge - iconW - 6, textY)
+              }
+            }
+          }
+          const treeY = y + ROW_H_PDF / 2 + 5
+          const treeRight = totalW - 10 - depth * 10
+          const pIconC = hexToRgb(PRIORITY_COLORS[cur.priority])
+          ctx.fillStyle = `rgb(${pIconC.r},${pIconC.g},${pIconC.b})`
+          ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'right'
+          ctx.fillText(PRIORITY_ICONS[cur.priority], treeRight, treeY)
+          const pIconW = ctx.measureText(PRIORITY_ICONS[cur.priority]).width
+          const dotsStr = '•'.repeat(depth + 1)
+          ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif'
+          ctx.fillText(dotsStr, treeRight - pIconW - 4, treeY)
+          const dotsW2 = ctx.measureText(dotsStr).width
+          ctx.fillStyle = depth === 0 ? '#111827' : '#374151'
+          ctx.font = depth === 0 ? 'bold 12px sans-serif' : '12px sans-serif'
+          const availTree = PNL_W - pIconW - dotsW2 - 28 - depth * 10
+          const maxCT = Math.floor(availTree / 6.5)
+          ctx.fillText(cur.name.length > maxCT ? cur.name.slice(0, maxCT) + '…' : cur.name, treeRight - pIconW - dotsW2 - 10, treeY)
+        })
+
+        // ── Legend (last page only) ──
+        if (isLast) {
+          const ly = rowsY + chunkRows.length * ROW_H_PDF
+          const LY_MID = ly + LEGEND_H / 2; const CHIP = 11
+          ctx.fillStyle = '#f9fafb'; ctx.fillRect(0, ly, totalW, LEGEND_H)
+          ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1
+          ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(totalW, ly); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(totalW / 2, ly + 10); ctx.lineTo(totalW / 2, ly + LEGEND_H - 10); ctx.stroke()
+          ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right'
+          ctx.fillText('المستوى:', totalW - 10, LY_MID + 4)
+          let rx = totalW - 76
+          DEPTH_COLORS.forEach((col, di) => {
+            const rc = hexToRgb(col)
+            ctx.fillStyle = `rgb(${rc.r},${rc.g},${rc.b})`
+            ctx.beginPath(); ctx.roundRect(rx - CHIP, LY_MID - CHIP / 2, CHIP, CHIP, 3); ctx.fill()
+            ctx.fillStyle = '#374151'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right'
+            ctx.fillText(`${'•'.repeat(di + 1)}`, rx - CHIP - 4, LY_MID + 4); rx -= 42
+          })
+          const doneRgb2 = hexToRgb(DONE_COLOR)
+          ctx.fillStyle = `rgb(${doneRgb2.r},${doneRgb2.g},${doneRgb2.b})`
+          ctx.beginPath(); ctx.roundRect(rx - CHIP, LY_MID - CHIP / 2, CHIP, CHIP, 3); ctx.fill()
+          ctx.fillStyle = '#374151'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right'
+          ctx.fillText('مكتمل', rx - CHIP - 4, LY_MID + 4)
+          const priorityEntries: [string, string, string][] = [
+            ['⬆⬆', 'حرج', '#ef4444'], ['⬆', 'عالي', '#f97316'],
+            ['◎', 'متوسط', '#3b82f6'], ['⬇', 'منخفض', '#22c55e'],
+          ]
+          ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'
+          ctx.fillText('الأولوية:', 10, LY_MID + 4)
+          let lxp = 76
+          priorityEntries.forEach(([icon, label, color]) => {
+            const rc = hexToRgb(color)
+            ctx.fillStyle = `rgb(${rc.r},${rc.g},${rc.b})`; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'
+            ctx.fillText(icon, lxp, LY_MID + 4)
+            const iconW = ctx.measureText(icon).width
+            ctx.fillStyle = '#374151'; ctx.font = '11px sans-serif'
+            ctx.fillText(label, lxp + iconW + 4, LY_MID + 4)
+            lxp += iconW + ctx.measureText(label).width + 18
+          })
+        }
+
+        // ── Page number ──
+        if (chunks.length > 1) {
+          ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left'
+          ctx.fillText(`${pageIdx + 1} / ${chunks.length}`, 8, pageH - 6)
+        }
+
+        if (pageIdx > 0) pdf.addPage()
+        pdf.addImage(cv.toDataURL('image/png', 1.0), 'PNG', mg, mg, printW, pageH * ratio)
+      }
+
       pdf.save(`roadmap-${project?.name ?? 'export'}.pdf`)
     } finally { setExporting(false) }
   }
@@ -619,42 +639,34 @@ export default function TimelinePage() {
         >
           <div ref={exportRef} style={{ minWidth: `${totalGanttW}px` }}>
 
-            {/* ── Month header row (RTL: future on left, current/past on right) ── */}
+            {/* ── Month header row — uses memoized data, not recreated every render ── */}
             <div style={{ display: 'flex', height: '30px', position: 'sticky', top: 0, zIndex: 10, background: '#f5f6fa', borderBottom: '1px solid #d1d5db' }}>
-              {Array.from({ length: TOTAL_MONTHS }, (_, i) => {
-                const actualI = TOTAL_MONTHS - 1 - i  // RTL: render in reverse
-                const d = new Date(START_DATE); d.setMonth(d.getMonth() + actualI)
-                const isCurrent = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()
-                return (
-                  <div key={i} style={{
-                    width: `${MONTH_W}px`, flexShrink: 0,
-                    borderLeft: i > 0 ? '1px solid #d1d5db' : 'none',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '12px', fontWeight: '700',
-                    color: isCurrent ? '#5b6bff' : '#6b7280',
-                    background: isCurrent ? '#eef2ff' : 'transparent',
-                  }}>
-                    {monthLabel(d)}
-                  </div>
-                )
-              })}
+              {monthHeaderData.map(({ key, label, isCurrent }) => (
+                <div key={key} style={{
+                  width: `${MONTH_W}px`, flexShrink: 0,
+                  borderLeft: key > 0 ? '1px solid #d1d5db' : 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '12px', fontWeight: '700',
+                  color: isCurrent ? '#5b6bff' : '#6b7280',
+                  background: isCurrent ? '#eef2ff' : 'transparent',
+                }}>
+                  {label}
+                </div>
+              ))}
             </div>
 
-            {/* ── Sub-header row (day ticks per month) — RTL reversed ── */}
+            {/* ── Sub-header row — memoized ── */}
             <div style={{ display: 'flex', height: '24px', position: 'sticky', top: '30px', zIndex: 10, background: '#fff', borderBottom: '1px solid #d1d5db' }}>
-              {Array.from({ length: TOTAL_MONTHS }, (_, mi) => {
-                const actualMi = TOTAL_MONTHS - 1 - mi
-                return [22, 15, 8, 1].map((day, wi) => (
-                  <div key={`${actualMi}-${wi}`} style={{
-                    width: `${MONTH_W / 4}px`, flexShrink: 0,
-                    borderLeft: wi > 0 ? '1px solid #e8e8f0' : (mi > 0 ? '1px solid #e0e0e8' : 'none'),
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '10px', color: '#b0b0c0', fontWeight: '600',
-                  }}>
-                    {day}
-                  </div>
-                ))
-              }).flat()}
+              {subHeaderData.map(({ key, day, wi, mi }) => (
+                <div key={key} style={{
+                  width: `${MONTH_W / 4}px`, flexShrink: 0,
+                  borderLeft: wi > 0 ? '1px solid #e8e8f0' : (mi > 0 ? '1px solid #e0e0e8' : 'none'),
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '10px', color: '#b0b0c0', fontWeight: '600',
+                }}>
+                  {day}
+                </div>
+              ))}
             </div>
 
             {/* ── Rows ── */}
@@ -665,16 +677,17 @@ export default function TimelinePage() {
               {/* Parent-child connector lines (SVG overlay) */}
               {flat.length > 0 && (() => {
                 const connectors: React.ReactElement[] = []
+                // Pre-computed O(1) index map — replaces O(n) flat.findIndex inside forEach
+                const flatIdxMap = new Map(flat.map((f, i) => [f.item.id, i]))
                 flat.forEach(({ item, depth }, parentIdx) => {
                   if (!item.children?.length || collapsed.has(item.id)) return
-                  // Find last visible descendant using depth
                   let lastIdx = parentIdx
                   for (let i = parentIdx + 1; i < flat.length; i++) {
                     if (flat[i].depth <= depth) break
                     lastIdx = i
                   }
                   if (lastIdx === parentIdx) return
-                  const cur = items.find(i => i.id === item.id) ?? item
+                  const cur = itemsById.get(item.id) ?? item   // O(1)
                   const x   = totalGanttW - dateToX(cur.start_date, pxPerDay)
                   const y1  = parentIdx * ROW_H + ROW_H
                   const y2  = lastIdx   * ROW_H + ROW_H / 2
@@ -685,7 +698,7 @@ export default function TimelinePage() {
                       {flat.slice(parentIdx + 1, lastIdx + 1)
                         .filter(f => f.item.parent_id === item.id)
                         .map(f => {
-                          const ci = flat.findIndex(ff => ff.item.id === f.item.id)
+                          const ci = flatIdxMap.get(f.item.id) ?? -1  // O(1)
                           const cy = ci * ROW_H + ROW_H / 2
                           return <line key={f.item.id} x1={x} y1={cy} x2={x - 14} y2={cy} stroke={color} strokeWidth={1.5} strokeDasharray="5 4" opacity={0.45} />
                         })
@@ -701,7 +714,7 @@ export default function TimelinePage() {
               })()}
 
               {flat.map(({ item, depth }) => {
-                const _base = items.find(i => i.id === item.id) ?? item
+                const _base = itemsById.get(item.id) ?? item   // O(1)
                 // During drag: read visual position from ref (no setItems cascade)
                 const cur   = dragDatesRef.current?.id === item.id
                   ? { ..._base, start_date: dragDatesRef.current.start_date, end_date: dragDatesRef.current.end_date }

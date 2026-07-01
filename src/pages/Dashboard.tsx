@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { Project } from '../types'
+import type { Project, ProjectType } from '../types'
 
 const PROJECT_COLORS = ['#5b6bff','#16a34a','#f97316','#7c3aed','#ef4444','#0891b2']
 
@@ -10,7 +10,7 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
   const [projects, setProjects]   = useState<Project[]>([])
   const [loading, setLoading]     = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [form, setForm]           = useState({ name: '', description: '', color: PROJECT_COLORS[0] })
+  const [form, setForm]           = useState({ name: '', description: '', color: PROJECT_COLORS[0], type: 'product' as ProjectType })
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
@@ -19,7 +19,7 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
 
   // Edit project state
   const [editTarget, setEditTarget] = useState<Project | null>(null)
-  const [editForm, setEditForm]     = useState({ name: '', color: PROJECT_COLORS[0] })
+  const [editForm, setEditForm]     = useState({ name: '', color: PROJECT_COLORS[0], description: '' })
 
   const load = async () => {
     const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
@@ -35,7 +35,7 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
     if (data) {
       setProjects(p => [data, ...p])
       setShowModal(false)
-      setForm({ name: '', description: '', color: PROJECT_COLORS[0] })
+      setForm({ name: '', description: '', color: PROJECT_COLORS[0], type: 'product' })
     }
   }
 
@@ -144,8 +144,8 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
                 key={p.id}
                 project={p}
                 isAdmin={isAdmin}
-                onClick={() => navigate(`/project/${p.id}`)}
-                onEdit={e => { e.stopPropagation(); setEditTarget(p); setEditForm({ name: p.name, color: p.color }) }}
+                onClick={() => navigate(p.type === 'business' ? `/business/${p.id}` : `/project/${p.id}`)}
+                onEdit={e => { e.stopPropagation(); setEditTarget(p); setEditForm({ name: p.name, color: p.color, description: p.description ?? '' }) }}
                 onDelete={e => { e.stopPropagation(); setDeleteTarget(p); setDeleteInput('') }}
               />
             ))}
@@ -236,6 +236,31 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               />
             </div>
 
+            {/* Project type selector */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>نوع المشروع</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {([
+                  { value: 'product',  label: 'خارطة المنتج',  desc: 'Gantt + بنود هرمية', color: '#5b6bff' },
+                  { value: 'business', label: 'خارطة البزنز', desc: 'مراحل × أقسام × OKR', color: '#534AB7' },
+                ] as { value: ProjectType; label: string; desc: string; color: string }[]).map(t => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, type: t.value }))}
+                    style={{
+                      padding: '12px', borderRadius: '12px', cursor: 'pointer', textAlign: 'right',
+                      border: `2px solid ${form.type === t.value ? t.color : '#e5e7eb'}`,
+                      background: form.type === t.value ? `${t.color}08` : '#f9fafb',
+                      transition: 'all 0.15s',
+                    }}>
+                    <div style={{ fontSize: '13px', fontWeight: '700', color: form.type === t.value ? t.color : '#374151', marginBottom: '2px' }}>{t.label}</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>{t.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>لون المشروع</label>
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -289,6 +314,17 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               <input
                 autoFocus value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} required
                 style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', width: '100%' }}
+                onFocus={e => (e.target.style.borderColor = '#5b6bff')}
+                onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>الوصف (اختياري)</label>
+              <textarea
+                value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                rows={3} placeholder="وصف قصير للمشروع"
+                style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', resize: 'none', width: '100%', lineHeight: '1.6' }}
                 onFocus={e => (e.target.style.borderColor = '#5b6bff')}
                 onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
               />
@@ -441,12 +477,15 @@ function ProjectCard({
 
       {/* Card header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginTop: '4px' }}>
-        <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0, lineHeight: '1.4' }}>{project.name}</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0, lineHeight: '1.4' }}>{project.name}</h3>
+          {project.type === 'business' && (
+            <span style={{ fontSize: '10px', fontWeight: '600', color: '#534AB7', background: '#EEEDFE', padding: '1px 7px', borderRadius: '10px', alignSelf: 'flex-start' }}>
+              خارطة البزنز
+            </span>
+          )}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          <span style={{
-            fontSize: '11px', fontWeight: '700', padding: '4px 10px',
-            borderRadius: '20px', background: '#eef2ff', color: '#5b6bff',
-          }}>جارٍ</span>
           {isAdmin && (
             <button
               onClick={onEdit}

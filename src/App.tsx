@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import type { Session } from '@supabase/supabase-js'
-import LoginPage    from './pages/LoginPage'
-import Dashboard    from './pages/Dashboard'
-import TimelinePage from './pages/TimelinePage'
-import UsersPage    from './pages/UsersPage'
+import LoginPage           from './pages/LoginPage'
+import Dashboard           from './pages/Dashboard'
+import TimelinePage        from './pages/TimelinePage'
+import UsersPage           from './pages/UsersPage'
+import BusinessRoadmapPage from './pages/BusinessRoadmapPage'
 
 export default function App() {
   const [session, setSession]   = useState<Session | null | undefined>(undefined)
@@ -27,17 +28,19 @@ export default function App() {
   if (session === undefined) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
       <div style={{ width: '32px', height: '32px', border: '4px solid #e5e7eb', borderTopColor: '#5b6bff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login"       element={session ? <Navigate to="/" /> : <LoginPage />} />
-        <Route path="/"            element={session ? <Dashboard isAdmin={isAdmin} /> : <Navigate to="/login" />} />
-        <Route path="/project/:id" element={session ? <TimelinePage /> : <Navigate to="/login" />} />
-        <Route path="/users"       element={session && isAdmin ? <UsersPage /> : <Navigate to="/" />} />
-        <Route path="*"            element={<Navigate to="/" />} />
+        <Route path="/login"          element={session ? <Navigate to="/" /> : <LoginPage />} />
+        <Route path="/"               element={session ? <Dashboard isAdmin={isAdmin} /> : <Navigate to="/login" />} />
+        <Route path="/project/:id"    element={session ? <TimelinePage /> : <Navigate to="/login" />} />
+        <Route path="/business/:id"   element={session ? <BusinessRoadmapPage /> : <Navigate to="/login" />} />
+        <Route path="/users"          element={session && isAdmin ? <UsersPage /> : <Navigate to="/" />} />
+        <Route path="*"               element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
   )
