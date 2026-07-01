@@ -5,7 +5,7 @@ import type { Project, ProjectType } from '../types'
 
 const PROJECT_COLORS = ['#5b6bff','#16a34a','#f97316','#7c3aed','#ef4444','#0891b2']
 
-export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
+export default function Dashboard({ isAdmin = false, userId = '' }: { isAdmin?: boolean; userId?: string }) {
   const navigate = useNavigate()
   const [projects, setProjects]   = useState<Project[]>([])
   const [loading, setLoading]     = useState(true)
@@ -31,7 +31,11 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
 
   const createProject = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { data } = await supabase.from('projects').insert(form).select().single()
+    const { data } = await supabase
+      .from('projects')
+      .insert({ ...form, owner_id: userId })
+      .select()
+      .single()
     if (data) {
       setProjects(p => [data, ...p])
       setShowModal(false)
@@ -42,8 +46,9 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
   const confirmDelete = async () => {
     if (!deleteTarget || deleteInput !== 'delete') return
     setDeleting(true)
+    // Delete items explicitly (cascade may not cover all cases)
     await supabase.from('roadmap_items').delete().eq('project_id', deleteTarget.id)
-    await supabase.from('project_members').delete().eq('project_id', deleteTarget.id)
+    // business_phases + business_okr_items + project_members all cascade from projects
     await supabase.from('projects').delete().eq('id', deleteTarget.id)
     setProjects(p => p.filter(x => x.id !== deleteTarget.id))
     setDeleteTarget(null)
@@ -60,6 +65,9 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
   }
 
   const logout = () => supabase.auth.signOut()
+
+  // A user can manage a project if they own it or are admin
+  const canManage = (p: Project) => isAdmin || p.owner_id === userId
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f6fa' }}>
@@ -97,18 +105,16 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               👥 المستخدمون
             </button>
           )}
-          {isAdmin && (
-            <button
-              onClick={() => setShowModal(true)}
-              style={{
-                background: '#5b6bff', color: '#fff',
-                border: 'none', borderRadius: '10px',
-                padding: '8px 20px', fontWeight: '700', fontSize: '14px',
-                cursor: 'pointer',
-              }}>
-              + مشروع جديد
-            </button>
-          )}
+          <button
+            onClick={() => setShowModal(true)}
+            style={{
+              background: '#5b6bff', color: '#fff',
+              border: 'none', borderRadius: '10px',
+              padding: '8px 20px', fontWeight: '700', fontSize: '14px',
+              cursor: 'pointer',
+            }}>
+            + مشروع جديد
+          </button>
           <button
             onClick={logout}
             style={{
@@ -143,42 +149,41 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               <ProjectCard
                 key={p.id}
                 project={p}
-                isAdmin={isAdmin}
+                canManage={canManage(p)}
                 onClick={() => navigate(p.type === 'business' ? `/business/${p.id}` : `/project/${p.id}`)}
                 onEdit={e => { e.stopPropagation(); setEditTarget(p); setEditForm({ name: p.name, color: p.color, description: p.description ?? '' }) }}
                 onDelete={e => { e.stopPropagation(); setDeleteTarget(p); setDeleteInput('') }}
               />
             ))}
-            {isAdmin && (
-              <div
-                onClick={() => setShowModal(true)}
-                style={{
-                  border: '2px dashed #d1d5db', borderRadius: '16px',
-                  padding: '32px', cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center',
-                  gap: '12px', minHeight: '160px',
-                  color: '#9ca3af', transition: 'all 0.2s',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = '#5b6bff'
-                  ;(e.currentTarget as HTMLDivElement).style.background = '#f5f3ff'
-                  ;(e.currentTarget as HTMLDivElement).style.color = '#5b6bff'
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = '#d1d5db'
-                  ;(e.currentTarget as HTMLDivElement).style.background = 'transparent'
-                  ;(e.currentTarget as HTMLDivElement).style.color = '#9ca3af'
-                }}
-              >
-                <div style={{
-                  width: '48px', height: '48px', borderRadius: '50%',
-                  background: '#f3f4f6', display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', fontSize: '24px', fontWeight: '300',
-                }}>+</div>
-                <span style={{ fontSize: '14px', fontWeight: '600' }}>إضافة مشروع</span>
-              </div>
-            )}
+            {/* Add project card — always visible */}
+            <div
+              onClick={() => setShowModal(true)}
+              style={{
+                border: '2px dashed #d1d5db', borderRadius: '16px',
+                padding: '32px', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                gap: '12px', minHeight: '160px',
+                color: '#9ca3af', transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#5b6bff'
+                ;(e.currentTarget as HTMLDivElement).style.background = '#f5f3ff'
+                ;(e.currentTarget as HTMLDivElement).style.color = '#5b6bff'
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#d1d5db'
+                ;(e.currentTarget as HTMLDivElement).style.background = 'transparent'
+                ;(e.currentTarget as HTMLDivElement).style.color = '#9ca3af'
+              }}
+            >
+              <div style={{
+                width: '48px', height: '48px', borderRadius: '50%',
+                background: '#f3f4f6', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', fontSize: '24px', fontWeight: '300',
+              }}>+</div>
+              <span style={{ fontSize: '14px', fontWeight: '600' }}>مشروع جديد</span>
+            </div>
           </div>
         )}
       </main>
@@ -208,12 +213,14 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>اسم المشروع *</label>
               <input
+                autoFocus
                 value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required
                 placeholder="اسم المشروع"
                 style={{
                   border: '1.5px solid #e5e7eb', borderRadius: '12px',
                   padding: '12px 16px', fontSize: '14px',
                   background: '#f9fafb', outline: 'none', width: '100%',
+                  fontFamily: 'inherit',
                 }}
                 onFocus={e => (e.target.style.borderColor = '#5b6bff')}
                 onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
@@ -230,6 +237,7 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
                   padding: '12px 16px', fontSize: '14px',
                   background: '#f9fafb', outline: 'none',
                   resize: 'none', width: '100%', lineHeight: '1.6',
+                  fontFamily: 'inherit',
                 }}
                 onFocus={e => (e.target.style.borderColor = '#5b6bff')}
                 onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
@@ -313,7 +321,7 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>اسم المشروع *</label>
               <input
                 autoFocus value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} required
-                style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', width: '100%' }}
+                style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', width: '100%', fontFamily: 'inherit' }}
                 onFocus={e => (e.target.style.borderColor = '#5b6bff')}
                 onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
               />
@@ -324,7 +332,7 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               <textarea
                 value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
                 rows={3} placeholder="وصف قصير للمشروع"
-                style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', resize: 'none', width: '100%', lineHeight: '1.6' }}
+                style={{ border: '1.5px solid #e5e7eb', borderRadius: '12px', padding: '12px 16px', fontSize: '14px', background: '#f9fafb', outline: 'none', resize: 'none', width: '100%', lineHeight: '1.6', fontFamily: 'inherit' }}
                 onFocus={e => (e.target.style.borderColor = '#5b6bff')}
                 onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
               />
@@ -367,25 +375,16 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               padding: '32px',
               display: 'flex', flexDirection: 'column', gap: '20px',
             }}>
-            {/* Icon + title */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', textAlign: 'center' }}>
-              <div style={{
-                width: '52px', height: '52px', borderRadius: '50%',
-                background: '#fef2f2', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', fontSize: '22px',
-              }}>🗑</div>
-              <h3 style={{ fontSize: '17px', fontWeight: '800', margin: 0, color: '#111827' }}>
-                حذف المشروع نهائياً
-              </h3>
+              <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>🗑</div>
+              <h3 style={{ fontSize: '17px', fontWeight: '800', margin: 0, color: '#111827' }}>حذف المشروع نهائياً</h3>
               <p style={{ fontSize: '13px', color: '#6b7280', margin: 0, lineHeight: '1.6' }}>
                 سيتم حذف مشروع <strong style={{ color: '#111827' }}>{deleteTarget.name}</strong> وجميع بنوده بشكل نهائي ولا يمكن التراجع عن هذا الإجراء.
               </p>
             </div>
 
-            {/* Divider */}
             <div style={{ height: '1px', background: '#f3f4f6' }} />
 
-            {/* Confirmation input */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600' }}>
                 اكتب <code style={{ background: '#f3f4f6', padding: '2px 7px', borderRadius: '5px', fontFamily: 'monospace', color: '#ef4444' }}>delete</code> للتأكيد
@@ -406,15 +405,10 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
               />
             </div>
 
-            {/* Buttons */}
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
                 onClick={() => { setDeleteTarget(null); setDeleteInput('') }}
-                style={{
-                  flex: 1, padding: '12px', borderRadius: '10px',
-                  border: '1.5px solid #e5e7eb', background: '#fff',
-                  fontSize: '14px', color: '#6b7280', cursor: 'pointer', fontWeight: '600',
-                }}>
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1.5px solid #e5e7eb', background: '#fff', fontSize: '14px', color: '#6b7280', cursor: 'pointer', fontWeight: '600' }}>
                 إلغاء
               </button>
               <button
@@ -440,10 +434,10 @@ export default function Dashboard({ isAdmin = false }: { isAdmin?: boolean }) {
 }
 
 function ProjectCard({
-  project, isAdmin, onClick, onEdit, onDelete,
+  project, canManage, onClick, onEdit, onDelete,
 }: {
   project: Project
-  isAdmin: boolean
+  canManage: boolean
   onClick: () => void
   onEdit: (e: React.MouseEvent) => void
   onDelete: (e: React.MouseEvent) => void
@@ -485,8 +479,9 @@ function ProjectCard({
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          {isAdmin && (
+        {/* Edit/Delete: visible to owner or admin */}
+        {canManage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <button
               onClick={onEdit}
               title="تعديل المشروع"
@@ -499,8 +494,6 @@ function ProjectCard({
               }}>
               ✏️
             </button>
-          )}
-          {isAdmin && (
             <button
               onClick={onDelete}
               title="حذف المشروع"
@@ -513,8 +506,8 @@ function ProjectCard({
               }}>
               🗑
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Description */}

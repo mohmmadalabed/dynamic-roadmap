@@ -12,6 +12,7 @@ export interface Project {
   description?: string
   color: string
   type?: ProjectType
+  owner_id?: string | null
   created_at: string
   updated_at: string
 }

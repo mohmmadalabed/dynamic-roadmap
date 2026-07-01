@@ -36,7 +36,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login"          element={session ? <Navigate to="/" /> : <LoginPage />} />
-        <Route path="/"               element={session ? <Dashboard isAdmin={isAdmin} /> : <Navigate to="/login" />} />
+        <Route path="/"               element={session ? <Dashboard isAdmin={isAdmin} userId={session.user.id} /> : <Navigate to="/login" />} />
         <Route path="/project/:id"    element={session ? <TimelinePage /> : <Navigate to="/login" />} />
         <Route path="/business/:id"   element={session ? <BusinessRoadmapPage /> : <Navigate to="/login" />} />
         <Route path="/users"          element={session && isAdmin ? <UsersPage /> : <Navigate to="/" />} />
