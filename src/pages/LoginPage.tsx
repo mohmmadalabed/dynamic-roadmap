@@ -50,11 +50,23 @@ export default function LoginPage() {
     })
     setLoading(false)
     if (error) { setError(error.message); return }
+
+    // Supabase never returns an explicit "email already registered" error
+    // (to avoid leaking which emails exist) — for an existing, already-confirmed
+    // account it silently returns a user with an empty `identities` array and
+    // no session instead of creating a duplicate.
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      setError('هذا البريد مسجّل مسبقاً — سجّل الدخول بدلاً من إنشاء حساب جديد.')
+      return
+    }
+
     if (!data.session) {
       // Falls back gracefully if "Confirm email" is still enabled on the Supabase project.
       setInfo('تم إنشاء الحساب. تحقق من بريدك لتفعيله ثم سجّل الدخول.')
       setMode('login')
     }
+    // Otherwise data.session is set — App.tsx's onAuthStateChange picks it up
+    // automatically and routes straight to the dashboard.
   }
 
   // ── Forgot password ────────────────────────────────────────────────────
