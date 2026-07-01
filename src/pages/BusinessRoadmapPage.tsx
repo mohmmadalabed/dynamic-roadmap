@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import DatePicker from '../components/DatePicker'
+import { track as trackLoading } from '../lib/loadingBar'
 import type { Project, BusinessPhase, BusinessOKRItem, DepartmentType, SectionType } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -62,10 +64,10 @@ export default function BusinessRoadmapPage() {
     if (!id) return
 
     const loadAll = async () => {
-      const [{ data: proj }, { data: phasesData }] = await Promise.all([
+      const [{ data: proj }, { data: phasesData }] = await trackLoading(Promise.all([
         supabase.from('projects').select('*').eq('id', id).single(),
         supabase.from('business_phases').select('*').eq('project_id', id).order('order_index'),
-      ])
+      ]))
 
       if (proj)       setProject(proj)
       if (phasesData) {
@@ -356,31 +358,27 @@ export default function BusinessRoadmapPage() {
           <div style={{ width: '1px', height: '18px', background: '#e5e7eb' }} />
 
           {/* Start date */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>البداية</span>
-            <input
-              type="date"
-              value={activePhase.start_date ?? ''}
-              onChange={e => updatePhaseDate('start_date', e.target.value)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '150px' }}>
+            <span style={{ fontSize: '11px', color: '#9ca3af', whiteSpace: 'nowrap' }}>البداية</span>
+            <DatePicker
+              value={activePhase.start_date}
+              onChange={v => updatePhaseDate('start_date', v)}
               style={{
                 fontSize: '12px', border: '1px solid #e5e7eb', borderRadius: '7px',
                 padding: '3px 8px', background: '#f9fafb', color: '#374151',
-                direction: 'ltr', cursor: 'pointer',
               }}
             />
           </div>
 
           {/* End date */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>النهاية</span>
-            <input
-              type="date"
-              value={activePhase.end_date ?? ''}
-              onChange={e => updatePhaseDate('end_date', e.target.value)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '150px' }}>
+            <span style={{ fontSize: '11px', color: '#9ca3af', whiteSpace: 'nowrap' }}>النهاية</span>
+            <DatePicker
+              value={activePhase.end_date}
+              onChange={v => updatePhaseDate('end_date', v)}
               style={{
                 fontSize: '12px', border: '1px solid #e5e7eb', borderRadius: '7px',
                 padding: '3px 8px', background: '#f9fafb', color: '#374151',
-                direction: 'ltr', cursor: 'pointer',
               }}
             />
           </div>
@@ -626,27 +624,25 @@ export default function BusinessRoadmapPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>تاريخ البداية</label>
-                <input
-                  type="date"
+                <DatePicker
                   value={phaseForm.start}
-                  onChange={e => setPhaseForm(f => ({ ...f, start: e.target.value }))}
+                  onChange={v => setPhaseForm(f => ({ ...f, start: v }))}
                   style={{
                     border: '1.5px solid #e5e7eb', borderRadius: '10px',
                     padding: '9px 10px', fontSize: '12px',
-                    background: '#f9fafb', outline: 'none', direction: 'ltr',
+                    background: '#f9fafb', outline: 'none',
                   }}
                 />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>تاريخ النهاية</label>
-                <input
-                  type="date"
+                <DatePicker
                   value={phaseForm.end}
-                  onChange={e => setPhaseForm(f => ({ ...f, end: e.target.value }))}
+                  onChange={v => setPhaseForm(f => ({ ...f, end: v }))}
                   style={{
                     border: '1.5px solid #e5e7eb', borderRadius: '10px',
                     padding: '9px 10px', fontSize: '12px',
-                    background: '#f9fafb', outline: 'none', direction: 'ltr',
+                    background: '#f9fafb', outline: 'none',
                   }}
                 />
               </div>

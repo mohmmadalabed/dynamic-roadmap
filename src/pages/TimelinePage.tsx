@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import DatePicker from '../components/DatePicker'
+import { track as trackLoading } from '../lib/loadingBar'
 import type { Project, RoadmapItem, Priority, Status, ItemType } from '../types'
 
 const PRIORITY_COLORS: Record<Priority, string> = {
@@ -137,10 +139,10 @@ export default function TimelinePage() {
 
   const reload = useCallback(async () => {
     if (!id) return
-    const [{ data: proj }, { data: its }] = await Promise.all([
+    const [{ data: proj }, { data: its }] = await trackLoading(Promise.all([
       supabase.from('projects').select('*').eq('id', id).single(),
       supabase.from('roadmap_items').select('*').eq('project_id', id).order('position')
-    ])
+    ]))
     if (proj) setProject(proj)
     if (its) setItems(its)
   }, [id])
@@ -860,13 +862,11 @@ function SidePanel({ item, onSave, onDelete, onClose, onAddChild }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <span style={{ fontSize: '12px', color: '#9ca3af' }}>البداية</span>
-              <input type="date" value={start} onChange={e => setStart(e.target.value)} style={{ ...inputStyle, fontSize: '13px', padding: '8px 10px' }}
-                onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
+              <DatePicker value={start} onChange={setStart} style={{ ...inputStyle, fontSize: '13px', padding: '8px 10px' }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <span style={{ fontSize: '12px', color: '#9ca3af' }}>النهاية</span>
-              <input type="date" value={end} onChange={e => setEnd(e.target.value)} style={{ ...inputStyle, fontSize: '13px', padding: '8px 10px' }}
-                onFocus={e => (e.target.style.borderColor = '#5b6bff')} onBlur={e => (e.target.style.borderColor = '#e5e7eb')} />
+              <DatePicker value={end} onChange={setEnd} style={{ ...inputStyle, fontSize: '13px', padding: '8px 10px' }} />
             </div>
           </div>
         </Field></Section>

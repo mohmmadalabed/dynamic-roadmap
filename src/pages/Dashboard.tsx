@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Project, ProjectType } from '../types'
 import PasswordInput from '../components/PasswordInput'
+import { track as trackLoading } from '../lib/loadingBar'
 
 const PROJECT_COLORS = ['#5b6bff','#16a34a','#f97316','#7c3aed','#ef4444','#0891b2']
 
@@ -30,7 +31,7 @@ export default function Dashboard({ isAdmin = false, userId = '', userEmail = ''
   const [editForm, setEditForm]     = useState({ name: '', color: PROJECT_COLORS[0], description: '' })
 
   const load = async () => {
-    const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
+    const { data } = await trackLoading(supabase.from('projects').select('*').order('created_at', { ascending: false }))
     setProjects(data ?? [])
     setLoading(false)
   }

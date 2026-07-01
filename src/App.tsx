@@ -1,6 +1,8 @@
 import { useEffect, useState, Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
+import LoadingBar from './components/LoadingBar'
+import { start as startLoadingBar, done as doneLoadingBar } from './lib/loadingBar'
 import type { Session } from '@supabase/supabase-js'
 
 // Route-level code splitting: each page ships as its own chunk and only
@@ -15,6 +17,13 @@ const BusinessRoadmapPage = lazy(() => import('./pages/BusinessRoadmapPage'))
 const ResetPasswordPage   = lazy(() => import('./pages/ResetPasswordPage'))
 
 function RouteFallback() {
+  // Mounts exactly while a lazy route chunk is loading, unmounts once it
+  // resolves — a clean hook point to drive the global top loading bar.
+  useEffect(() => {
+    startLoadingBar()
+    return () => doneLoadingBar()
+  }, [])
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
       <div style={{ width: '32px', height: '32px', border: '4px solid #e5e7eb', borderTopColor: '#5b6bff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
@@ -61,6 +70,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <LoadingBar />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/login"          element={session ? <Navigate to="/" /> : <LoginPage />} />
