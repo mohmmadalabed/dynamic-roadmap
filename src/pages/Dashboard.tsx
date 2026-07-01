@@ -232,7 +232,10 @@ export default function Dashboard({ isAdmin = false, userId = '', userEmail = ''
       </main>
 
       <p style={{ textAlign: 'center', fontSize: '11px', color: '#c4c9d4', margin: '8px 0 24px' }}>
-        تم التطوير بواسطة محمد العابد &nbsp;|&nbsp; malabed.com
+        تم التطوير بواسطة محمد العابد &nbsp;|&nbsp;
+        <a href="https://malabed.com" target="_blank" rel="noopener noreferrer" style={{ color: '#9ca3af', textDecoration: 'underline' }}>
+          malabed.com
+        </a>
       </p>
 
       {/* ── New Project Modal ── */}

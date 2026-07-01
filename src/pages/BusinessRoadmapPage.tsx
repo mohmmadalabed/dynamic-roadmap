@@ -364,15 +364,35 @@ export default function BusinessRoadmapPage() {
         ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1
         ctx.strokeRect(0.5, topH + 0.5, PAGE_W - 1, DEPT_H + contentH - 1)
 
-        // Footer: page number + credit line
+        // Footer: page number + credit line. Drawn as two separate fillText calls
+        // (Arabic prefix, then the Latin domain) so we know the exact pixel box of
+        // "malabed.com" to attach a real clickable link over it — no guessing at
+        // bidi-reordered glyph positions from a single mixed-direction string.
         const footerY = pageH - FOOTER_H / 2
         ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left'
         ctx.fillText(`${pageIdx + 1} / ${pages.length}`, 8, footerY + 3)
-        ctx.fillStyle = '#c4c9d4'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right'
-        ctx.fillText('تم التطوير بواسطة محمد العابد  |  malabed.com', PAGE_W - 8, footerY + 3)
+
+        ctx.font = '9px sans-serif'; ctx.textAlign = 'right'
+        const creditLink = 'malabed.com'
+        ctx.fillStyle = '#8b8fa3'
+        ctx.fillText(creditLink, PAGE_W - 8, footerY + 3)
+        const linkTextW = ctx.measureText(creditLink).width
+        const linkLeftPx = PAGE_W - 8 - linkTextW
+
+        ctx.fillStyle = '#c4c9d4'
+        ctx.fillText('تم التطوير بواسطة محمد العابد  |  ', linkLeftPx, footerY + 3)
 
         if (pageIdx > 0) pdf.addPage()
         pdf.addImage(cv.toDataURL('image/png', 1.0), 'PNG', mg, mg, printW, pageH * ratio)
+
+        // Clickable overlay for "malabed.com"
+        pdf.link(
+          mg + linkLeftPx * ratio,
+          mg + (footerY - 6) * ratio,
+          linkTextW * ratio,
+          12 * ratio,
+          { url: 'https://malabed.com' }
+        )
       })
 
       pdf.save(`business-roadmap-${project?.name ?? 'export'}.pdf`)

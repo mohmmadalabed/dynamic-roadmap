@@ -253,7 +253,10 @@ export default function LoginPage() {
       </div>
 
       <p style={{ fontSize: '11px', color: '#b0b4c4', margin: 0, textAlign: 'center' }}>
-        تم التطوير بواسطة محمد العابد &nbsp;|&nbsp; malabed.com
+        تم التطوير بواسطة محمد العابد &nbsp;|&nbsp;
+        <a href="https://malabed.com" target="_blank" rel="noopener noreferrer" style={{ color: '#9ca3af', textDecoration: 'underline' }}>
+          malabed.com
+        </a>
       </p>
     </div>
   )
