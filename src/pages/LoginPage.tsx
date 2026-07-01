@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import PasswordInput from '../components/PasswordInput'
+import Turnstile from '../components/Turnstile'
 
-type Mode = 'login' | 'signup' | 'forgot' | 'otp'
+type Mode = 'login' | 'signup' | 'forgot'
+
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string
 
 const inputStyle: React.CSSProperties = {
   border: '1.5px solid #e5e7eb', borderRadius: '12px',
@@ -16,7 +19,7 @@ export default function LoginPage() {
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm]   = useState('')
-  const [otp, setOtp]           = useState('')
+  const [captchaToken, setCaptchaToken] = useState('')
   const [error, setError]       = useState('')
   const [info, setInfo]         = useState('')
   const [loading, setLoading]   = useState(false)
@@ -33,39 +36,25 @@ export default function LoginPage() {
   }
 
   // ── Signup ─────────────────────────────────────────────────────────────
+  // No email confirmation step — Turnstile blocks bots, account is active immediately.
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     resetMessages()
     if (password.length < 6) { setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return }
     if (password !== confirm) { setError('كلمتا المرور غير متطابقتين'); return }
+    if (!captchaToken) { setError('أكمل التحقق من أنك لست روبوتاً'); return }
     setLoading(true)
-    const { data, error } = await supabase.auth.signUp({ email, password })
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: { captchaToken },
+    })
     setLoading(false)
     if (error) { setError(error.message); return }
     if (!data.session) {
-      // Email confirmation required — move to OTP entry
-      setMode('otp')
-      setInfo(`أرسلنا كود تأكيد مكوّن من 6 أرقام إلى ${email}`)
+      // Falls back gracefully if "Confirm email" is still enabled on the Supabase project.
+      setInfo('تم إنشاء الحساب. تحقق من بريدك لتفعيله ثم سجّل الدخول.')
+      setMode('login')
     }
-  }
-
-  // ── OTP verify ─────────────────────────────────────────────────────────
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    resetMessages()
-    if (otp.trim().length !== 6) { setError('أدخل الكود المكوّن من 6 أرقام كاملاً'); return }
-    setLoading(true)
-    const { error } = await supabase.auth.verifyOtp({ email, token: otp.trim(), type: 'signup' })
-    setLoading(false)
-    if (error) { setError(error.message); return }
-    // Success — the session is now set, App.tsx will route to the dashboard.
-  }
-
-  const resendOtp = async () => {
-    resetMessages()
-    const { error } = await supabase.auth.resend({ type: 'signup', email })
-    if (error) setError(error.message)
-    else setInfo('تم إرسال كود جديد إلى بريدك')
   }
 
   // ── Forgot password ────────────────────────────────────────────────────
@@ -86,7 +75,6 @@ export default function LoginPage() {
     login:  { h: 'أهلًا بعودتك 👋', sub: 'منصة تخطيط المشاريع المرئي' },
     signup: { h: 'إنشاء حساب جديد', sub: 'ابدأ بإدارة مشاريعك خلال دقيقة' },
     forgot: { h: 'استعادة كلمة المرور', sub: 'سنرسل لك رابط إعادة التعيين' },
-    otp:    { h: 'تأكيد البريد الإلكتروني', sub: 'أدخل الكود المرسل إلى بريدك' },
   }
 
   return (
@@ -203,6 +191,10 @@ export default function LoginPage() {
               />
             </div>
 
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <Turnstile siteKey={TURNSTILE_SITE_KEY} onVerify={setCaptchaToken} />
+            </div>
+
             {error && <ErrorBox text={error} />}
             {info && <InfoBox text={info} />}
 
@@ -213,41 +205,6 @@ export default function LoginPage() {
               <button type="button" onClick={() => switchMode('login')}
                 style={{ background: 'none', border: 'none', color: '#5b6bff', fontWeight: '700', cursor: 'pointer', fontSize: '13px', padding: 0 }}>
                 تسجيل الدخول
-              </button>
-            </p>
-          </form>
-        )}
-
-        {/* ── OTP verification ── */}
-        {mode === 'otp' && (
-          <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151', textAlign: 'center' }}>كود التأكيد</label>
-              <input
-                value={otp}
-                onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                inputMode="numeric" autoFocus required
-                placeholder="000000"
-                style={{
-                  ...inputStyle,
-                  textAlign: 'center', fontSize: '24px', fontWeight: '800',
-                  letterSpacing: '10px', direction: 'ltr', padding: '14px 16px',
-                }}
-                onFocus={e => (e.target.style.borderColor = '#5b6bff')}
-                onBlur={e => (e.target.style.borderColor = '#e5e7eb')}
-              />
-            </div>
-
-            {error && <ErrorBox text={error} />}
-            {info && <InfoBox text={info} />}
-
-            <SubmitButton loading={loading} label="تأكيد" loadingLabel="جارٍ التحقق..." />
-
-            <p style={{ textAlign: 'center', fontSize: '13px', color: '#9ca3af', margin: 0 }}>
-              ما وصلك الكود؟{' '}
-              <button type="button" onClick={resendOtp}
-                style={{ background: 'none', border: 'none', color: '#5b6bff', fontWeight: '700', cursor: 'pointer', fontSize: '13px', padding: 0 }}>
-                إعادة الإرسال
               </button>
             </p>
           </form>
